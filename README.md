@@ -59,6 +59,18 @@ docker compose run --rm cli validate clinic/portal.yaml
 Вебхук создаётся в портале: «Разработчикам» → «Другое» → «Входящий вебхук».
 Права: `crm` и `department` (структура компании). Импорт только читает данные.
 
+### Windows (Git Bash + Docker Desktop)
+
+Команды те же, что выше, с несколькими отличиями:
+
+- Docker Desktop должен быть запущен (значок кита в трее). Проверка: `docker version`.
+- `HOST_UID` и `HOST_GID` в `.env` оставьте `1000`. Не подставляйте вывод `id -u`:
+  в Git Bash он выдаёт виндовый номер вроде `197609`, который здесь не нужен.
+- `.env` удобно править так: `notepad .env`.
+- Если `docker compose run` пишет `the input device is not a TTY`, добавьте флаг `-T`:
+  `docker compose run --rm -T cli import -o test/portal.yaml`.
+- Результат открывается в Проводнике командой `explorer workspace`.
+
 ## Локальная разработка
 
 ```bash
