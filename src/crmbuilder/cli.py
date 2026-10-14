@@ -352,7 +352,12 @@ def _cmd_design(args: argparse.Namespace) -> int:
     print("\n" + (result.summary or "(no summary)"))
     usage = result.usage
     cost = usage.cost(model)
-    cost_text = f", about ${cost:.2f}" if cost is not None else ""
+    if cost is None:
+        cost_text = ", cost unknown for this model"
+    elif cost < 0.01:
+        cost_text = f", about ${cost:.4f}"
+    else:
+        cost_text = f", about ${cost:.2f}"
     read = usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
     print(
         f"\n[{usage.requests} request(s): {read} tokens read, "

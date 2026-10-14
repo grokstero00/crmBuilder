@@ -31,6 +31,8 @@ MAX_TOKENS = 16000
 PRICES = {
     "claude-opus-5-5": (4.0, 20.0, 0.20),
     "claude-sonnet-5-5": (2.0, 10.0, 0.20),
+    # Haiku 5.5 rates for prompts up to 100K tokens; cache read assumed at 0.1x input.
+    "claude-haiku-5-5": (0.10, 0.50, 0.01),
 }
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"

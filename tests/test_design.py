@@ -299,3 +299,11 @@ def test_cli_design_reports_missing_key(spec_file, monkeypatch, capsys):
     monkeypatch.setattr(cli, "_anthropic_client", lambda: Failing())
     assert cli.main(["design", str(spec_file), "--brief-text", "x"]) == 2
     assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+
+def test_haiku_cost_is_estimated():
+    from crmbuilder.design import Usage
+
+    usage = Usage(input_tokens=12736, output_tokens=3488)
+    assert usage.cost("claude-haiku-5-5") == pytest.approx(0.0030176)
+    assert usage.cost("some-other-model") is None
