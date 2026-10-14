@@ -55,6 +55,8 @@ DEAL_STAGES = {
         {"ID": "1", "STATUS_ID": "NEW", "NAME": "Новая", "SORT": "10", "SEMANTICS": None},
         {"ID": "2", "STATUS_ID": "WON", "NAME": "Сделка успешна", "SORT": "20", "SEMANTICS": "S"},
         {"ID": "3", "STATUS_ID": "LOSE", "NAME": "Провал", "SORT": "30", "SEMANTICS": "F"},
+        {"ID": "4", "STATUS_ID": "APOLOGY", "NAME": "Анализ причины провала", "SORT": "40",
+         "EXTRA": {"SEMANTICS": "apology"}},
     ],
     "DEAL_STAGE_1": [
         {"ID": "10", "STATUS_ID": "C1:NEW", "NAME": "Новая заявка", "SORT": "10",
@@ -65,6 +67,10 @@ DEAL_STAGES = {
          "EXTRA": {"SEMANTICS": "success"}},
         {"ID": "13", "STATUS_ID": "C1:LOSE", "NAME": "Не пришёл", "SORT": "40",
          "EXTRA": {"SEMANTICS": "failure"}},
+        {"ID": "14", "STATUS_ID": "C1:APOLOGY", "NAME": "Анализ причины", "SORT": "50",
+         "SEMANTICS": "F"},
+        {"ID": "15", "STATUS_ID": "C1:UC_Q1W2E3", "NAME": "Странная", "SORT": "60",
+         "EXTRA": {"SEMANTICS": "weird"}},
     ],
     "DYNAMIC_1036_STAGE_7": [
         {"ID": "20", "STATUS_ID": "DT1036_7:NEW", "NAME": "Черновик", "SORT": "10"},

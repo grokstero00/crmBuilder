@@ -16,9 +16,18 @@ def test_import_deal_categories_and_stages(portal: FakePortal):
         ("zapisan", "process"),  # UC_ code replaced by the stage name
         ("won", "success"),
         ("lose", "failure"),
+        ("apology", "failure"),
+        ("strannaya", "process"),
     ]
     assert stages[0].color == "#39A8EF"
-    assert [s.semantic.value for s in cats[0].stages] == ["process", "success", "failure"]
+    assert [s.semantic.value for s in cats[0].stages] == [
+        "process",
+        "success",
+        "failure",
+        "failure",  # APOLOGY reported as "apology"
+    ]
+    assert "C1:UC_Q1W2E3: unknown stage semantics 'weird', treated as process" in result.warnings
+    assert not any("APOLOGY" in w for w in result.warnings)
 
     state = result.state.resources
     assert state["crm.deal_categories.pervichnyy_priem"] == {"id": 1}

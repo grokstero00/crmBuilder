@@ -34,11 +34,14 @@ _USERFIELD_METHODS = {
 }
 
 _SEMANTICS = {
-    "S": StageSemantic.success,
-    "F": StageSemantic.failure,
+    "p": StageSemantic.process,
+    "s": StageSemantic.success,
+    "f": StageSemantic.failure,
+    "process": StageSemantic.process,
     "success": StageSemantic.success,
     "failure": StageSemantic.failure,
-    "process": StageSemantic.process,
+    # "Failure analysis" system stage: Bitrix lists it among the failed stages.
+    "apology": StageSemantic.failure,
 }
 
 _KNOWN_FIELD_TYPES = {t.value for t in FieldType} - {FieldType.other.value}
@@ -136,9 +139,14 @@ class _Importer:
                 fallback=f"stage_{item.get('ID', len(stages) + 1)}",
             )
             extra = item.get("EXTRA") or {}
-            semantic = _SEMANTICS.get(extra.get("SEMANTICS") or item.get("SEMANTICS") or "process")
-            if semantic is None:
-                self.warnings.append(f"{status_id}: unknown stage semantics, treated as process")
+            raw = extra.get("SEMANTICS") or item.get("SEMANTICS") or "process"
+            semantic = _SEMANTICS.get(str(raw).lower())
+            if code == "APOLOGY":
+                semantic = StageSemantic.failure
+            elif semantic is None:
+                self.warnings.append(
+                    f"{status_id}: unknown stage semantics {raw!r}, treated as process"
+                )
                 semantic = StageSemantic.process
             self.state.set(f"{address}.{key}", status_id=status_id, id=_int_or_none(item.get("ID")))
             stages.append(
