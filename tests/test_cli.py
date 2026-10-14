@@ -9,7 +9,7 @@ from .conftest import FakePortal
 
 
 def test_import_writes_spec_and_state(portal: FakePortal, tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "BitrixClient", lambda url: portal.client())
+    monkeypatch.setattr(cli, "BitrixClient", lambda url, **kw: portal.client())
     out = tmp_path / "clinic" / "portal.yaml"
     code = cli.main(["import", "--webhook", "https://x/rest/1/t/", "-o", str(out)])
     assert code == 0
@@ -52,7 +52,7 @@ def test_version(capsys):
 
 
 def test_import_reports_unwritable_output(portal: FakePortal, tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "BitrixClient", lambda url: portal.client())
+    monkeypatch.setattr(cli, "BitrixClient", lambda url, **kw: portal.client())
     blocker = tmp_path / "file"
     blocker.write_text("")
     code = cli.main(["import", "--webhook", "https://x/rest/1/t/", "-o", str(blocker / "p.yaml")])
@@ -69,7 +69,9 @@ def test_import_reports_network_errors(monkeypatch, capsys):
         raise httpx.ConnectError("connection refused")
 
     monkeypatch.setattr(
-        cli, "BitrixClient", lambda url: BitrixClient(url, transport=httpx.MockTransport(refuse))
+        cli,
+        "BitrixClient",
+        lambda url, **kw: BitrixClient(url, transport=httpx.MockTransport(refuse)),
     )
     assert cli.main(["import", "--webhook", "https://x/rest/1/t/"]) == 1
     assert "cannot reach the portal" in capsys.readouterr().err
@@ -81,7 +83,7 @@ def test_import_rejects_malformed_webhook(capsys):
 
 
 def _import(portal, tmp_path, monkeypatch, *extra):
-    monkeypatch.setattr(cli, "BitrixClient", lambda url: portal.client())
+    monkeypatch.setattr(cli, "BitrixClient", lambda url, **kw: portal.client())
     out = tmp_path / "portal.yaml"
     assert cli.main(["import", "--webhook", "https://x/rest/1/t/", "-o", str(out), *extra]) == 0
     return out

@@ -25,7 +25,7 @@ def test_iter_list_follows_next(portal: FakePortal):
 
 def test_error_raises_bitrix_error(portal: FakePortal):
     with pytest.raises(BitrixError) as info:
-        portal.client().call("crm.unknown")
+        portal.client().call("crm.unknown.list")
     assert info.value.code == "ERROR_METHOD_NOT_FOUND"
 
 
@@ -88,3 +88,20 @@ def test_webhook_url_keeps_port():
 def test_invalid_webhook_url_is_rejected(raw):
     with pytest.raises(ValueError, match="expected https://"):
         normalize_webhook_url(raw)
+
+
+def test_client_is_read_only_by_default(portal: FakePortal):
+    from crmbuilder.bitrix import ReadOnlyError
+
+    portal.on("crm.status.add", lambda p: {"result": 1})
+    with pytest.raises(ReadOnlyError):
+        portal.client().call("crm.status.add", {"fields": {}})
+    assert portal.calls == []  # nothing reached the portal
+
+
+def test_writable_client_may_write():
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"result": 7})
+
+    client = BitrixClient(WEBHOOK, transport=httpx.MockTransport(handle), read_only=False)
+    assert client.call("crm.status.add", {"fields": {}}) == 7

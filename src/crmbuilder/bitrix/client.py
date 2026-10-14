@@ -39,6 +39,19 @@ def normalize_webhook_url(url: str) -> str:
     return str(parsed.copy_with(path=path + "/", query=None, fragment=None))
 
 
+# Method name suffixes that only read data. A read-only client refuses anything else.
+_READ_SUFFIXES = ("list", "get", "fields")
+_READ_METHODS = {"profile", "scope", "methods", "user.current"}
+
+
+def _is_read_method(method: str) -> bool:
+    return method in _READ_METHODS or method.rsplit(".", 1)[-1] in _READ_SUFFIXES
+
+
+class ReadOnlyError(RuntimeError):
+    """A write method was called through a read-only client."""
+
+
 class BitrixError(RuntimeError):
     def __init__(self, method: str, code: str, description: str = "") -> None:
         self.method = method
@@ -58,8 +71,11 @@ class BitrixClient:
         max_retries: int = 5,
         sleep: Callable[[float], None] = time.sleep,
         timeout: float = 30.0,
+        read_only: bool = True,
     ) -> None:
         self.webhook_url = normalize_webhook_url(webhook_url)
+        # Read-only by default: only `apply` opens a client that may write.
+        self.read_only = read_only
         self._http = httpx.Client(transport=transport, timeout=timeout)
         self._max_retries = max_retries
         self._sleep = sleep
@@ -79,6 +95,8 @@ class BitrixClient:
 
     def call_raw(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Return the full response body (``result``, ``total``, ``next``...)."""
+        if self.read_only and not _is_read_method(method):
+            raise ReadOnlyError(f"{method}: refused, this client is read-only")
         url = f"{self.webhook_url}{method}.json"
         for attempt in range(self._max_retries + 1):
             response = self._http.post(url, json=params or {})

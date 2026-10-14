@@ -34,6 +34,12 @@ class State(BaseModel):
     def get(self, address: str) -> dict[str, Any] | None:
         return self.resources.get(address)
 
+    def drop(self, address: str) -> None:
+        """Forget an object and everything nested under it."""
+        prefix = address + "."
+        for key in [k for k in self.resources if k == address or k.startswith(prefix)]:
+            del self.resources[key]
+
     def children(self, scope: str, identity: str) -> dict[str, str]:
         """Map ``remote[identity]`` -> key for the direct children of ``scope``."""
         prefix = scope + "."
