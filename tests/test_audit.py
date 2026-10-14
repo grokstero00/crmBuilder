@@ -239,3 +239,26 @@ def test_cli_audit_with_ai(messy_file, monkeypatch, capsys):
     assert "Тип принтера» не связано с бизнесом [ИИ]" in out
     assert "[AI review: about $0.0009]" in out
     assert "fallbacks" not in claude.requests[0]  # not sent for Haiku
+
+
+def test_bitrix_default_typo_is_explained():
+    spec = PortalSpec.model_validate({"portal": "x", "crm": {"deal_categories": [
+        {"key": "s", "name": "Продажи", "stages": [
+            {"key": "new", "name": "Новая", "sort": 10},
+            {"key": "inv", "name": "Cчёт на предоплату", "sort": 20},
+            {"key": "won", "name": "Успех", "semantic": "success", "sort": 30},
+            {"key": "lose", "name": "Провал", "semantic": "failure", "sort": 40}]}]}})  # fmt: skip
+    (finding,) = audit(spec)
+    assert "стандартном названии стадии Битрикс24" in finding.hint
+
+
+def test_shipped_templates_pass_the_audit():
+    from crmbuilder import templates
+    from crmbuilder.importer import import_portal
+
+    base = import_portal(seeded_portal().client()).spec
+    for name in templates.available():
+        merged, report = templates.merge(base, name)
+        added = set(report.added)
+        own = [f for f in audit(merged) if any(f.address.startswith(a) for a in added)]
+        assert own == [], f"template {name}: {own}"

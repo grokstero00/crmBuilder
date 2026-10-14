@@ -108,6 +108,9 @@ _JUNK = re.compile(
     r"поле ?\d*|field ?\d*|asdf\w*|qwe\w*|ыва\w*|\d+|x+|xxx|temp|tmp|удалить\w*)$",
     re.IGNORECASE,
 )
+# Default stage names that ship with a Latin "C" (seen on a fresh portal and on clients').
+_BITRIX_DEFAULT_TYPOS = {"Cчёт на предоплату"}
+
 _CYRILLIC = re.compile(r"[а-яё]", re.IGNORECASE)
 _LATIN = re.compile(r"[a-z]", re.IGNORECASE)
 _WORD = re.compile(r"[a-zа-яё]+", re.IGNORECASE)
@@ -152,14 +155,22 @@ class _Auditor:
     def _text(self, address: str, text: str, what: str) -> None:
         mixed = [w for w in _WORD.findall(text) if _CYRILLIC.search(w) and _LATIN.search(w)]
         if mixed:
+            hint = (
+                "Замените латинские буквы на русские: поиск и фильтры по этому слову "
+                "сейчас не находят объект."
+            )
+            if text.strip() in _BITRIX_DEFAULT_TYPOS:
+                hint += (
+                    " Это опечатка в стандартном названии стадии Битрикс24, она есть на "
+                    "многих порталах."
+                )
             self.add(
                 Severity.warning,
                 "mixed_script",
                 address,
                 f"{what} «{text}»: в слове {', '.join(f'«{w}»' for w in mixed)} смешаны "
                 "русские и латинские буквы",
-                "Замените латинские буквы на русские: поиск и фильтры по этому слову "
-                "сейчас не находят объект.",
+                hint,
             )
         if text != text.strip() or "  " in text:
             self.add(

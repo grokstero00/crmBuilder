@@ -52,11 +52,8 @@ crm:
       type: string
       sort: 540
       settings: {ROWS: 3}
+    # Birth date is a standard contact field in Bitrix24, so the template does not add one.
     contact:
-    - key: data_rozhdeniya
-      label: Дата рождения
-      type: date
-      sort: 500
     - key: pol
       label: Пол
       type: enumeration
