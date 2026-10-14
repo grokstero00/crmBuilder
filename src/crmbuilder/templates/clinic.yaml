@@ -1,0 +1,77 @@
+description: Медицинская клиника — запись на приём, лечение, карточка пациента, регистратура и врачи
+crm:
+  deal_categories:
+  - key: zapis_na_priem
+    name: Запись на приём
+    sort: 200
+    stages:
+    - {key: new, name: Новая заявка, sort: 10}
+    - {key: zapisan, name: Записан, sort: 20}
+    - {key: podtverzhden, name: Подтвердил визит, sort: 30}
+    - {key: won, name: Пришёл на приём, semantic: success, sort: 40}
+    - {key: lose, name: Не пришёл, semantic: failure, sort: 50}
+    - {key: otmenil, name: Отменил запись, semantic: failure, sort: 60}
+  - key: lechenie
+    name: Лечение
+    sort: 300
+    stages:
+    - {key: new, name: Консультация, sort: 10}
+    - {key: plan_lecheniya, name: План лечения согласован, sort: 20}
+    - {key: v_lechenii, name: В лечении, sort: 30}
+    - {key: won, name: Лечение завершено, semantic: success, sort: 40}
+    - {key: lose, name: Отказ от лечения, semantic: failure, sort: 50}
+  fields:
+    deal:
+    - key: vrach
+      label: Врач
+      type: employee
+      sort: 500
+    - key: data_priema
+      label: Дата и время приёма
+      type: datetime
+      sort: 510
+    - key: istochnik_zapisi
+      label: Источник записи
+      type: enumeration
+      sort: 520
+      values:
+      - {key: sayt, value: Сайт, sort: 10}
+      - {key: zvonok, value: Звонок, sort: 20}
+      - {key: agregator, value: Агрегатор (ПроДокторов и др.), sort: 30}
+      - {key: rekomendatsiya, value: Рекомендация, sort: 40}
+    - key: napravlenie
+      label: Направление
+      type: enumeration
+      sort: 530
+      values:
+      - {key: terapiya, value: Терапия, sort: 10}
+      - {key: stomatologiya, value: Стоматология, sort: 20}
+      - {key: diagnostika, value: Диагностика, sort: 30}
+    - key: kommentariy_vracha
+      label: Комментарий врача
+      type: string
+      sort: 540
+      settings: {ROWS: 3}
+    contact:
+    - key: data_rozhdeniya
+      label: Дата рождения
+      type: date
+      sort: 500
+    - key: pol
+      label: Пол
+      type: enumeration
+      sort: 510
+      values:
+      - {key: muzhskoy, value: Мужской, sort: 10}
+      - {key: zhenskiy, value: Женский, sort: 20}
+    - key: allergii
+      label: Аллергии и противопоказания
+      type: string
+      sort: 520
+      settings: {ROWS: 3}
+structure:
+  departments:
+  - {key: registratura, name: Регистратура, parent: "@root", sort: 100}
+  - {key: vrachi, name: Врачи, parent: "@root", sort: 200}
+  - {key: terapevty, name: Терапевты, parent: vrachi, sort: 100}
+  - {key: stomatologi, name: Стоматологи, parent: vrachi, sort: 200}

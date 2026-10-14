@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 from pydantic import ValidationError
 
-from crmbuilder import __version__
+from crmbuilder import __version__, templates
 from crmbuilder.apply import Applier
 from crmbuilder.bitrix import BitrixClient, BitrixError
 from crmbuilder.importer import ImportResult, import_portal
@@ -272,6 +272,30 @@ def _cmd_rollback(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _cmd_template_list(args: argparse.Namespace) -> int:
+    for name, description in templates.available().items():
+        print(f"{name:<16}{description}")
+    return 0
+
+
+def _cmd_template_add(args: argparse.Namespace) -> int:
+    spec = _load_spec(args.spec)
+    try:
+        merged, report = templates.merge(spec, args.name)
+    except ValueError as exc:
+        raise _Failure(str(exc), 2) from exc
+    except ValidationError as exc:
+        raise _Failure(f"template {args.name!r} does not fit this spec: {exc}") from exc
+    dump_spec(merged, args.spec)
+    print(f"template {args.name!r} merged into {args.spec}: {len(report.added)} added")
+    for address in report.added:
+        print(f"  + {address}")
+    for address in report.skipped:
+        print(f"  = {address} (already in the spec, left as is)")
+    print(f"\nnothing has changed on the portal yet; next: crmbuilder plan {args.spec}")
+    return 0
+
+
 def _cmd_validate(args: argparse.Namespace) -> int:
     spec = _load_spec(args.spec)
     print(f"{args.spec}: ok ({spec.portal})")
@@ -339,6 +363,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback.add_argument("--to", metavar="SNAPSHOT", help="snapshot name from .history")
     add_write_options(p_rollback)
     p_rollback.set_defaults(func=_cmd_rollback)
+
+    p_template = sub.add_parser("template", help="ready-made configurations")
+    template_sub = p_template.add_subparsers(dest="template_command", required=True)
+    p_tlist = template_sub.add_parser("list", help="show available templates")
+    p_tlist.set_defaults(func=_cmd_template_list)
+    p_tadd = template_sub.add_parser(
+        "add", help="merge a template into a spec file (the portal is not touched)"
+    )
+    p_tadd.add_argument("name", help="template name, see `template list`")
+    p_tadd.add_argument("spec", help="spec YAML to extend")
+    p_tadd.set_defaults(func=_cmd_template_add)
 
     p_validate = sub.add_parser("validate", help="check a spec file against the schema")
     p_validate.add_argument("spec", help="path to spec YAML")
