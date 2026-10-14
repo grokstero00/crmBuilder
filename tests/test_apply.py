@@ -139,13 +139,21 @@ def test_fields_and_values():
             )
         )
         spec.crm.fields["deal"].append(
+            Field(key="warranty", label="Гарантийный случай", type=FieldType.boolean)
+        )
+        spec.crm.fields["deal"].append(
             Field(key="order", label="Заказ", type=FieldType.crm,
                   settings={"SMART_PROCESS:zakazy": "Y", "COMPANY": "Y"})
         )  # fmt: skip
 
     apply_and_verify(fake, edit)
     deal_fields = {f["FIELD_NAME"]: f for f in fake.userfields["deal"]}
-    assert set(deal_fields) == {"UF_CRM_SOURCE", "UF_CRM_INDUSTRY", "UF_CRM_ORDER"}
+    assert set(deal_fields) == {
+        "UF_CRM_SOURCE",
+        "UF_CRM_INDUSTRY",
+        "UF_CRM_WARRANTY",
+        "UF_CRM_ORDER",
+    }
     assert [v["VALUE"] for v in deal_fields["UF_CRM_SOURCE"]["LIST"]] == ["Сайт компании",
                                                                           "Выставка"]  # fmt: skip
     assert deal_fields["UF_CRM_INDUSTRY"]["MANDATORY"] == "Y"

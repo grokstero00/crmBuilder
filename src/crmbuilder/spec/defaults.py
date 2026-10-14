@@ -25,6 +25,9 @@ FIELD_SETTING_DEFAULTS: dict[FieldType, dict[str, Any]] = {
         "TARGET_BLANK": "Y",
     },
     FieldType.enumeration: {"DISPLAY": "LIST", "LIST_HEIGHT": 1, "SHOW_NO_VALUE": "Y"},
+    # Seen on a live portal: a yes/no field created without settings comes back
+    # with these (LABEL as ["", ""] is dropped as blank).
+    FieldType.boolean: {"DEFAULT_VALUE": 0, "DISPLAY": "CHECKBOX"},
     FieldType.date: {"DEFAULT_VALUE": _NO_DEFAULT_DATE},
     FieldType.datetime: {"DEFAULT_VALUE": _NO_DEFAULT_DATE},
 }
@@ -39,14 +42,21 @@ def _same(a: Any, b: Any) -> bool:
     return str(a) == str(b)
 
 
+def _blank(value: Any) -> bool:
+    """None, "" and containers holding only those, e.g. LABEL: ["", ""]."""
+    if value is None or value == "":
+        return True
+    if isinstance(value, dict):
+        return all(_blank(v) for v in value.values())
+    if isinstance(value, list | tuple):
+        return all(_blank(v) for v in value)
+    return False
+
+
 def strip_defaults(field_type: FieldType, settings: dict[str, Any]) -> dict[str, Any]:
     defaults = FIELD_SETTING_DEFAULTS.get(field_type, {})
     return {
         k: v
         for k, v in settings.items()
-        if v is not None
-        and v != ""
-        and v != []
-        and v != {}
-        and not (k in defaults and _same(v, defaults[k]))
+        if not _blank(v) and not (k in defaults and _same(v, defaults[k]))
     }

@@ -276,6 +276,10 @@ class FakeBitrix:
             "SORT": str(f.get("SORT", 100)), "EDIT_FORM_LABEL": label,
             "SETTINGS": copy.deepcopy(f.get("SETTINGS") or {}), "XML_ID": f.get("XML_ID"),
         }  # fmt: skip
+        if f["USER_TYPE_ID"] == "boolean":
+            # A live portal fills these in for a yes/no field created without settings.
+            field["SETTINGS"] = {"DEFAULT_VALUE": 0, "DISPLAY": "CHECKBOX", "LABEL": ["", ""],
+                                 **field["SETTINGS"]}  # fmt: skip
         if f["USER_TYPE_ID"] == "enumeration":
             field["LIST"] = []
             self._apply_list(field, f.get("LIST") or [])
