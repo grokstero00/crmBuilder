@@ -44,6 +44,11 @@ _SEMANTICS = {
     "apology": StageSemantic.failure,
 }
 
+# System stage codes whose meaning never changes. Other system codes (PREPARATION,
+# EXECUTING, CLIENT...) are routinely renamed into something else, e.g. a stage
+# coded PREPAYMENT_INVOICE named "RFI", so those get keys from their names.
+_ANCHOR_STAGE_CODES = {"NEW", "WON", "LOSE", "APOLOGY", "SUCCESS", "FAIL"}
+
 _KNOWN_FIELD_TYPES = {t.value for t in FieldType} - {FieldType.other.value}
 
 
@@ -134,7 +139,7 @@ class _Importer:
             status_id = str(item["STATUS_ID"])
             code = status_id.rsplit(":", 1)[-1]
             key = keys.allocate(
-                code if is_meaningful_code(code) else "",
+                code if code in _ANCHOR_STAGE_CODES else "",
                 item.get("NAME", ""),
                 fallback=f"stage_{item.get('ID', len(stages) + 1)}",
             )
@@ -189,7 +194,7 @@ class _Importer:
         result = []
         for item in items:
             field_name = str(item["FIELD_NAME"])
-            code = field_name.removeprefix("UF_CRM_")
+            code = field_name.removeprefix("UF_CRM_").removeprefix("UF_")
             label = self._label(item) or field_name
             key = keys.allocate(
                 code if is_meaningful_code(code) else "", label, fallback=field_name.lower()

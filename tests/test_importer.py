@@ -13,6 +13,7 @@ def test_import_deal_categories_and_stages(portal: FakePortal):
     stages = cats[1].stages
     assert [(s.key, s.semantic.value) for s in stages] == [
         ("new", "process"),
+        ("rfi_zapros", "process"),  # renamed system stage keyed by its name
         ("zapisan", "process"),  # UC_ code replaced by the stage name
         ("won", "success"),
         ("lose", "failure"),
@@ -39,7 +40,7 @@ def test_import_deal_categories_and_stages(portal: FakePortal):
 def test_import_fields(portal: FakePortal):
     result = import_portal(portal.client())
     fields = {f.key: f for f in result.spec.crm.fields["deal"]}
-    assert set(fields) == {"doctor", "istochnik_zapisi", "bron_kabineta"}
+    assert set(fields) == {"doctor", "istochnik_zapisi", "logo", "bron_kabineta"}
 
     doctor = fields["doctor"]
     assert (doctor.type, doctor.required, doctor.label) == (FieldType.employee, True, "Врач")

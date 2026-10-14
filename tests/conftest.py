@@ -61,6 +61,7 @@ DEAL_STAGES = {
     "DEAL_STAGE_1": [
         {"ID": "10", "STATUS_ID": "C1:NEW", "NAME": "Новая заявка", "SORT": "10",
          "EXTRA": {"SEMANTICS": "process", "COLOR": "#39A8EF"}},
+        {"ID": "16", "STATUS_ID": "C1:PREPAYMENT_INVOICE", "NAME": "RFI / запрос", "SORT": "15"},
         {"ID": "11", "STATUS_ID": "C1:UC_X7K2P1", "NAME": "Записан", "SORT": "20",
          "EXTRA": {"SEMANTICS": "process"}},
         {"ID": "12", "STATUS_ID": "C1:WON", "NAME": "Пришёл", "SORT": "30",
@@ -90,6 +91,8 @@ DEAL_FIELDS = [
           "XML_ID": "0c8c2f1b3e5a4d6f8a9b0c1d2e3f4a5b"},
          {"ID": "2", "VALUE": "Звонок", "DEF": "N", "SORT": "20", "XML_ID": "PHONE"},
      ]},
+    {"ID": "60", "FIELD_NAME": "UF_LOGO", "USER_TYPE_ID": "file", "SORT": "400",
+     "EDIT_FORM_LABEL": "Логотип"},
     {"ID": "59", "FIELD_NAME": "UF_CRM_1712345999", "USER_TYPE_ID": "resourcebooking",
      "MULTIPLE": "N", "MANDATORY": "N", "SORT": "300", "EDIT_FORM_LABEL": {"ru": "Бронь кабинета"}},
 ]  # fmt: skip
