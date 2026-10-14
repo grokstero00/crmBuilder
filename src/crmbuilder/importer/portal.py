@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from crmbuilder.bitrix import BitrixClient, BitrixError
 from crmbuilder.keys import KeyAllocator, is_meaningful_code
+from crmbuilder.spec.defaults import strip_defaults
 from crmbuilder.spec.models import (
     Category,
     CrmSpec,
@@ -25,6 +27,11 @@ from crmbuilder.spec.models import (
 from crmbuilder.state import State
 
 DEAL_ENTITY_TYPE_ID = 2
+
+# CRM link fields reference smart processes as ``DYNAMIC_<entityTypeId>``; the
+# number differs between portals, so the spec stores the smart process key.
+SMART_PROCESS_LINK_PREFIX = "SMART_PROCESS:"
+_DYNAMIC_LINK = re.compile(r"^DYNAMIC_(\d+)$")
 
 _USERFIELD_METHODS = {
     EntityType.lead: "crm.lead.userfield.list",
@@ -59,8 +66,15 @@ class ImportResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def import_portal(client: BitrixClient, *, lang: str = "ru") -> ImportResult:
-    return _Importer(client, lang).run()
+def import_portal(
+    client: BitrixClient, *, lang: str = "ru", previous_state: State | None = None
+) -> ImportResult:
+    """Read the portal into a spec.
+
+    With ``previous_state`` objects already known by their Bitrix ID keep their
+    keys, so a spec edited after an earlier import still lines up with the portal.
+    """
+    return _Importer(client, lang, previous_state).run()
 
 
 def _yes(value: Any) -> bool:
@@ -75,17 +89,25 @@ def _int_or_none(value: Any) -> int | None:
 
 
 class _Importer:
-    def __init__(self, client: BitrixClient, lang: str) -> None:
+    def __init__(self, client: BitrixClient, lang: str, previous: State | None) -> None:
         self.client = client
         self.lang = lang
+        self.previous = previous or State(portal=client.portal)
         self.state = State(portal=client.portal)
         self.warnings: list[str] = []
+        self.smart_process_keys: dict[str, str] = {}  # entityTypeId -> key
+
+    def _keys(self, scope: str, identity: str) -> KeyAllocator:
+        return KeyAllocator(self.previous.children(scope, identity))
 
     def run(self) -> ImportResult:
+        deal_categories = self._deal_categories()
+        # Smart processes first: link fields refer to them by key.
+        smart_processes = self._smart_processes()
         crm = CrmSpec(
-            deal_categories=self._deal_categories(),
+            deal_categories=deal_categories,
             fields=self._fields(),
-            smart_processes=self._smart_processes(),
+            smart_processes=smart_processes,
         )
         spec = PortalSpec(
             portal=self.client.portal,
@@ -105,11 +127,11 @@ class _Importer:
     ) -> list[Category]:
         result = self.client.call("crm.category.list", {"entityTypeId": entity_type_id})
         raw = sorted(result.get("categories", []), key=lambda c: _int_or_none(c.get("sort")) or 0)
-        keys = KeyAllocator()
+        keys = self._keys(address, "id")
         categories = []
         for item in raw:
             cat_id = int(item["id"])
-            key = keys.allocate(item.get("name", ""), fallback=f"category_{cat_id}")
+            key = keys.allocate(item.get("name", ""), fallback=f"category_{cat_id}", remote=cat_id)
             cat_address = f"{address}.{key}"
             self.state.set(cat_address, id=cat_id)
             stages = (
@@ -133,7 +155,7 @@ class _Importer:
             "crm.status.list",
             {"filter": {"ENTITY_ID": entity_id}, "order": {"SORT": "ASC"}},
         )
-        keys = KeyAllocator()
+        keys = self._keys(address, "status_id")
         stages = []
         for item in items:
             status_id = str(item["STATUS_ID"])
@@ -142,6 +164,7 @@ class _Importer:
                 code if code in _ANCHOR_STAGE_CODES else "",
                 item.get("NAME", ""),
                 fallback=f"stage_{item.get('ID', len(stages) + 1)}",
+                remote=status_id,
             )
             extra = item.get("EXTRA") or {}
             raw = extra.get("SEMANTICS") or item.get("SEMANTICS") or "process"
@@ -190,14 +213,17 @@ class _Importer:
         return fields
 
     def _entity_fields(self, entity: EntityType, items: list[dict]) -> list[Field]:
-        keys = KeyAllocator()
+        keys = self._keys(f"crm.fields.{entity.value}", "field_name")
         result = []
         for item in items:
             field_name = str(item["FIELD_NAME"])
             code = field_name.removeprefix("UF_CRM_").removeprefix("UF_")
             label = self._label(item) or field_name
             key = keys.allocate(
-                code if is_meaningful_code(code) else "", label, fallback=field_name.lower()
+                code if is_meaningful_code(code) else "",
+                label,
+                fallback=field_name.lower(),
+                remote=field_name,
             )
             address = f"crm.fields.{entity.value}.{key}"
             self.state.set(address, id=_int_or_none(item.get("ID")), field_name=field_name)
@@ -222,13 +248,13 @@ class _Importer:
                     required=_yes(item.get("MANDATORY")),
                     sort=_int_or_none(item.get("SORT")),
                     values=values,
-                    settings=_compact(item.get("SETTINGS")),
+                    settings=self._settings(ftype, item.get("SETTINGS"), field_name),
                 )
             )
         return result
 
     def _enum_values(self, items: list[dict], address: str) -> list[EnumValue]:
-        keys = KeyAllocator()
+        keys = self._keys(address, "id")
         values = []
         for item in items:
             xml_id = str(item.get("XML_ID") or "")
@@ -236,6 +262,7 @@ class _Importer:
                 xml_id if is_meaningful_code(xml_id) else "",
                 str(item.get("VALUE", "")),
                 fallback=f"value_{item.get('ID', len(values) + 1)}",
+                remote=item.get("ID"),
             )
             self.state.set(f"{address}.{key}", id=_int_or_none(item.get("ID")))
             values.append(
@@ -247,6 +274,23 @@ class _Importer:
                 )
             )
         return values
+
+    def _settings(self, ftype: FieldType, settings: Any, field_name: str) -> dict:
+        if not isinstance(settings, dict):
+            return {}
+        if ftype is FieldType.crm:
+            settings = {self._crm_link(k, field_name): v for k, v in settings.items()}
+        return strip_defaults(ftype, settings)
+
+    def _crm_link(self, setting: str, field_name: str) -> str:
+        match = _DYNAMIC_LINK.match(setting)
+        if not match:
+            return setting
+        key = self.smart_process_keys.get(match.group(1))
+        if key is None:
+            self.warnings.append(f"{field_name}: links to unknown smart process {setting}")
+            return setting
+        return SMART_PROCESS_LINK_PREFIX + key
 
     def _label(self, item: dict) -> str:
         for name in ("EDIT_FORM_LABEL", "LIST_COLUMN_LABEL", "LIST_FILTER_LABEL"):
@@ -263,12 +307,18 @@ class _Importer:
         except BitrixError as exc:
             self.warnings.append(f"crm.type.list: skipped ({exc.code})")
             return []
-        keys = KeyAllocator()
+        keys = self._keys("crm.smart_processes", "entity_type_id")
         result = []
         for item in types:
             entity_type_id = int(item["entityTypeId"])
             code = str(item.get("code") or "")
-            key = keys.allocate(code, item.get("title", ""), fallback=f"smart_{entity_type_id}")
+            key = keys.allocate(
+                code,
+                item.get("title", ""),
+                fallback=f"smart_{entity_type_id}",
+                remote=entity_type_id,
+            )
+            self.smart_process_keys[str(entity_type_id)] = key
             address = f"crm.smart_processes.{key}"
             self.state.set(address, id=int(item["id"]), entity_type_id=entity_type_id)
             stages_enabled = _yes(item.get("isStagesEnabled"))
@@ -297,10 +347,10 @@ class _Importer:
         except BitrixError as exc:
             self.warnings.append(f"department.get: skipped ({exc.code})")
             return []
-        keys = KeyAllocator()
+        keys = self._keys("structure.departments", "id")
         key_by_id = {
             str(item["ID"]): keys.allocate(
-                item.get("NAME", ""), fallback=f"department_{item['ID']}"
+                item.get("NAME", ""), fallback=f"department_{item['ID']}", remote=item["ID"]
             )
             for item in items
         }
@@ -322,10 +372,3 @@ class _Importer:
                 )
             )
         return departments
-
-
-def _compact(settings: Any) -> dict:
-    """Drop empty values so YAML stays readable without losing meaningful ones."""
-    if not isinstance(settings, dict):
-        return {}
-    return {k: v for k, v in settings.items() if v is not None and v != "" and v != [] and v != {}}

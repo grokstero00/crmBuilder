@@ -40,7 +40,14 @@ def test_import_deal_categories_and_stages(portal: FakePortal):
 def test_import_fields(portal: FakePortal):
     result = import_portal(portal.client())
     fields = {f.key: f for f in result.spec.crm.fields["deal"]}
-    assert set(fields) == {"doctor", "istochnik_zapisi", "logo", "bron_kabineta"}
+    assert set(fields) == {
+        "doctor",
+        "istochnik_zapisi",
+        "logo",
+        "bron_kabineta",
+        "patsient",
+        "staraya_svyaz",
+    }
 
     doctor = fields["doctor"]
     assert (doctor.type, doctor.required, doctor.label) == (FieldType.employee, True, "Врач")
@@ -50,7 +57,7 @@ def test_import_fields(portal: FakePortal):
         ("sayt", "Сайт", True),  # md5 XML_ID replaced by the value
         ("phone", "Звонок", False),
     ]
-    assert source.settings == {"DISPLAY": "LIST", "LIST_HEIGHT": 1}
+    assert source.settings == {}  # DISPLAY=LIST, LIST_HEIGHT=1 are Bitrix defaults
 
     booking = fields["bron_kabineta"]
     assert (booking.type, booking.bitrix_type) == (FieldType.other, "resourcebooking")
@@ -91,3 +98,58 @@ def test_import_departments(portal: FakePortal):
 def test_imported_spec_is_valid(portal: FakePortal):
     spec = import_portal(portal.client()).spec
     assert PortalSpec.model_validate(spec.model_dump(mode="json")) == spec
+
+
+def test_crm_links_to_smart_processes_use_keys(portal: FakePortal):
+    result = import_portal(portal.client())
+    fields = {f.key: f for f in result.spec.crm.fields["deal"]}
+    assert fields["patsient"].settings == {"CONTACT": "Y", "SMART_PROCESS:plan_lecheniya": "Y"}
+    assert fields["staraya_svyaz"].settings == {"DYNAMIC_9999": "Y"}
+    assert any("unknown smart process DYNAMIC_9999" in w for w in result.warnings)
+
+
+def test_default_settings_are_dropped(portal: FakePortal):
+    fields = {f.key: f for f in import_portal(portal.client()).spec.crm.fields["deal"]}
+    assert fields["logo"].settings == {"MAX_ALLOWED_SIZE": 1048576}
+
+
+def test_reimport_keeps_keys_from_previous_state(portal: FakePortal):
+    first = import_portal(portal.client())
+    # Pretend the user renamed things in the spec before the portal changed.
+    first.state.resources["crm.deal_categories.primary"] = first.state.resources.pop(
+        "crm.deal_categories.pervichnyy_priem"
+    )
+    for address in list(first.state.resources):
+        if address.startswith("crm.deal_categories.pervichnyy_priem."):
+            new = address.replace("pervichnyy_priem", "primary", 1)
+            first.state.resources[new] = first.state.resources.pop(address)
+    first.state.resources["crm.fields.deal.source"] = first.state.resources.pop(
+        "crm.fields.deal.istochnik_zapisi"
+    )
+
+    # Someone renames the category on the portal and adds a field whose name
+    # would naturally produce the key "source".
+    def categories(params):
+        data = {
+            2: [
+                {"id": 0, "name": "Общая", "sort": 100, "isDefault": "Y"},
+                {"id": 1, "name": "Приём (новое имя)", "sort": 200, "isDefault": "N"},
+            ]
+        }
+        return {"result": {"categories": data.get(params["entityTypeId"], [])}}
+
+    portal.on("crm.category.list", categories)
+    from .conftest import DEAL_FIELDS, paginate
+
+    extra = {"ID": "99", "FIELD_NAME": "UF_CRM_SOURCE", "USER_TYPE_ID": "string",
+             "EDIT_FORM_LABEL": "Новый источник"}  # fmt: skip
+    portal.on("crm.deal.userfield.list", lambda p: paginate([*DEAL_FIELDS, extra], p))
+
+    second = import_portal(portal.client(), previous_state=first.state)
+    assert [c.key for c in second.spec.crm.deal_categories] == ["obshchaya", "primary"]
+    assert second.spec.crm.deal_categories[1].name == "Приём (новое имя)"
+    stage_keys = [s.key for s in second.spec.crm.deal_categories[1].stages]
+    assert stage_keys[:3] == ["new", "rfi_zapros", "zapisan"]
+    fields = {f.key: f for f in second.spec.crm.fields["deal"]}
+    assert fields["source"].label == "Источник записи"  # reserved key kept
+    assert fields["source_2"].label == "Новый источник"  # newcomer does not steal it

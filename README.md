@@ -13,10 +13,52 @@
     структура отделов);
   - `portal.state.json`: связь ключей спецификации с ID в Битриксе
     (`C1:NEW`, `UF_CRM_1712345678`, ID воронок и отделов).
+
+  Если state-файл уже есть, повторный импорт сохраняет прежние ключи, даже если
+  объекты переименовали на портале. `--fresh` генерирует все ключи заново.
+- `crmbuilder plan portal.yaml` заново читает портал и показывает, что нужно
+  изменить, чтобы он совпал со спецификацией. На портале ничего не меняется.
+  `--json` выводит план для программ, `--against other.yaml` сравнивает два файла
+  без обращения к порталу.
 - `crmbuilder validate portal.yaml` проверяет спецификацию по схеме.
 
-Дальше по плану: `plan` (сравнение спецификации с порталом), `apply` со снимком
-перед изменениями, `rollback`, `drift`, затем ИИ-слой.
+Дальше по плану: `apply` со снимком перед изменениями, `rollback`, затем ИИ-слой.
+
+## Рабочий цикл
+
+```bash
+crmbuilder import -o clinic/portal.yaml   # 1. прочитать портал
+# 2. поправить clinic/portal.yaml
+crmbuilder plan clinic/portal.yaml        # 3. посмотреть, что изменится
+```
+
+Пример плана:
+
+```
+Plan for clinic.bitrix24.ru
+
+  ~ update  crm.deal_categories.obshchaya.stages.prepayment_invoice
+        name: "Cчёт на предоплату" -> "Счёт на предоплату"
+  + create  crm.deal_categories.obshchaya.stages.peregovory
+        name: "Переговоры"
+        semantic: "process"
+        sort: 55
+  - delete  crm.fields.deal.tip_printera
+        WARNING: data stored in this field will be lost
+
+Plan: 1 to create, 1 to update, 1 to delete.
+1 destructive change(s) marked with - or ! can lose data.
+```
+
+Объекты сопоставляются по ключу: новый ключ в файле означает создание, пропавший
+ключ означает удаление. Поэтому переименовывать ключи нельзя, меняйте
+`name`/`label`. Тип поля и флаг множественности Битрикс менять не умеет, такие
+правки план показывает как `replace` (удалить и создать заново, данные теряются).
+
+Ссылки CRM-полей на смарт-процессы хранятся по ключу (`SMART_PROCESS:vebinary`),
+а не по номеру `DYNAMIC_1066`, поэтому спецификацию можно переносить между
+порталами. Настройки полей, совпадающие со значениями Битрикса по умолчанию,
+в файл не пишутся.
 
 ## Пример спецификации
 
@@ -51,7 +93,7 @@ crm:
 cp .env.example .env          # вписать BITRIX_WEBHOOK_URL
 docker compose build
 docker compose run --rm cli import -o clinic/portal.yaml
-docker compose run --rm cli validate clinic/portal.yaml
+docker compose run --rm cli plan clinic/portal.yaml
 ```
 
 Файлы появятся в `./workspace/clinic/`.

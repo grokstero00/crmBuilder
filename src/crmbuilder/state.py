@@ -34,6 +34,18 @@ class State(BaseModel):
     def get(self, address: str) -> dict[str, Any] | None:
         return self.resources.get(address)
 
+    def children(self, scope: str, identity: str) -> dict[str, str]:
+        """Map ``remote[identity]`` -> key for the direct children of ``scope``."""
+        prefix = scope + "."
+        result = {}
+        for address, remote in self.resources.items():
+            if not address.startswith(prefix):
+                continue
+            key = address[len(prefix) :]
+            if "." not in key and remote.get(identity) is not None:
+                result[str(remote[identity])] = key
+        return result
+
 
 def load_state(path: str | Path) -> State:
     return State.model_validate_json(Path(path).read_text(encoding="utf-8"))

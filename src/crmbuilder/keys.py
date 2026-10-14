@@ -36,12 +36,20 @@ def is_meaningful_code(code: str) -> bool:
 
 
 class KeyAllocator:
-    """Hands out unique keys within one scope, suffixing ``_2``, ``_3`` on clashes."""
+    """Hands out unique keys within one scope, suffixing ``_2``, ``_3`` on clashes.
 
-    def __init__(self) -> None:
-        self._used: set[str] = set()
+    ``reserved`` maps remote identities (Bitrix IDs) to keys from a previous
+    state, so re-importing a portal keeps keys stable even after objects are
+    renamed, and new objects never take a key that already means something else.
+    """
 
-    def allocate(self, *candidates: str, fallback: str) -> str:
+    def __init__(self, reserved: dict[str, str] | None = None) -> None:
+        self._reserved = dict(reserved or {})
+        self._used: set[str] = set(self._reserved.values())
+
+    def allocate(self, *candidates: str, fallback: str, remote: object = None) -> str:
+        if remote is not None and str(remote) in self._reserved:
+            return self._reserved[str(remote)]
         base = next((s for c in candidates if c and (s := slugify(c))), slugify(fallback))
         key, n = base, 2
         while key in self._used:
