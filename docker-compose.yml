@@ -1,0 +1,13 @@
+services:
+  # CLI: docker compose run --rm cli import -o clinic/portal.yaml
+  # Specs and state files land in ./workspace on the host.
+  cli:
+    build: .
+    image: crmbuilder:latest
+    # Run as the host user so files written to ./workspace stay editable on the host.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./workspace:/workspace
