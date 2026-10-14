@@ -386,6 +386,66 @@ def _cmd_design(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_audit(args: argparse.Namespace) -> int:
+    from crmbuilder import audit as auditor
+
+    spec = _load_spec(args.spec)
+    findings = auditor.audit(spec)
+    business = ""
+    cost_line = ""
+    if args.ai:
+        import anthropic
+
+        from crmbuilder import design as designer
+
+        model = args.model or os.environ.get("CRMBUILDER_MODEL", designer.DEFAULT_MODEL)
+        effort = args.effort or os.environ.get("CRMBUILDER_EFFORT", designer.DEFAULT_EFFORT)
+        context = args.context or ""
+        if args.context_file:
+            try:
+                context = Path(args.context_file).read_text(encoding="utf-8")
+            except OSError as exc:
+                raise _Failure(f"cannot read the context file: {exc}", 2) from exc
+        if not args.json:
+            print(f"AI review with {model}; only the portal structure is sent\n")
+        try:
+            review = auditor.ai_review(
+                _anthropic_client(), spec, findings, context=context, model=model, effort=effort
+            )
+        except anthropic.AuthenticationError as exc:
+            raise _Failure("set ANTHROPIC_API_KEY in .env to use --ai", 2) from exc
+        except (anthropic.APIError, RuntimeError) as exc:
+            raise _Failure(f"AI review failed: {exc}") from exc
+        findings = findings + review.findings
+        business = review.business_guess
+        cost = review.usage.cost(model)
+        if cost is not None:
+            cost_line = (
+                f"[AI review: about ${cost:.4f}]"
+                if cost < 0.01
+                else f"[AI review: about ${cost:.2f}]"
+            )
+
+    if args.json:
+        print(json.dumps({"portal": spec.portal, "business_guess": business,
+                          "findings": [f.to_dict() for f in findings]},
+                         ensure_ascii=False, indent=2))  # fmt: skip
+    else:
+        print(auditor.render_text(spec.portal, findings, business))
+        if cost_line:
+            print(cost_line)
+    if args.output:
+        try:
+            Path(args.output).write_text(
+                auditor.render_markdown(spec.portal, findings, business), encoding="utf-8"
+            )
+        except OSError as exc:
+            raise _Failure(f"cannot write the report: {exc}") from exc
+        if not args.json:
+            print(f"report saved to {args.output}")
+    return 0
+
+
 def _cmd_template_list(args: argparse.Namespace) -> int:
     for name, description in templates.available().items():
         print(f"{name:<16}{description}")
@@ -496,6 +556,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_design.add_argument("--yes", action="store_true", help="save without asking")
     p_design.set_defaults(func=_cmd_design)
+
+    p_audit = sub.add_parser("audit", help="find problems in a spec (read-only)")
+    p_audit.add_argument("spec", help="spec YAML, e.g. right after import")
+    p_audit.add_argument("--ai", action="store_true", help="add a review by Claude")
+    p_audit.add_argument("--context", help="a few words about the client's business, for --ai")
+    p_audit.add_argument("--context-file", help="file describing the client's business")
+    p_audit.add_argument("--model", help="Claude model for --ai")
+    p_audit.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
+    p_audit.add_argument("--json", action="store_true", help="print findings as JSON")
+    p_audit.add_argument("-o", "--output", help="also save a Markdown report for the client")
+    p_audit.set_defaults(func=_cmd_audit)
 
     p_template = sub.add_parser("template", help="ready-made configurations")
     template_sub = p_template.add_subparsers(dest="template_command", required=True)
