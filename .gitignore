@@ -7,5 +7,7 @@ __pycache__/
 dist/
 build/
 .env
+.env.*
+!.env.example
 workspace/*
 !workspace/.gitkeep
