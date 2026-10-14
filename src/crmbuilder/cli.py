@@ -1,4 +1,4 @@
-"""Command-line entry point: ``crmbuilder import | plan | apply | rollback | validate``."""
+"""Command-line entry point: ``crmbuilder import | plan | apply | rollback | design | ...``."""
 
 from __future__ import annotations
 
@@ -272,6 +272,115 @@ def _cmd_rollback(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _anthropic_client():
+    try:
+        import anthropic
+    except ImportError as exc:  # pragma: no cover - installed as a dependency
+        raise _Failure("the anthropic package is not installed", 2) from exc
+    from crmbuilder.bitrix.client import ssl_context
+
+    try:
+        verify = ssl_context()
+    except ValueError as exc:
+        raise _Failure(str(exc), 2) from exc
+    # The same extra CA as for Bitrix: HTTPS inspection usually covers both.
+    return anthropic.Anthropic(http_client=anthropic.DefaultHttpxClient(verify=verify))
+
+
+def _ask_in_console(questions: list[str]) -> list[str]:
+    print("\nClaude asks (press Enter to let it decide):")
+    answers = []
+    for n, question in enumerate(questions, 1):
+        print(f"\n{n}. {question}")
+        try:
+            answers.append(input("> ").strip())
+        except EOFError:
+            answers.append("")
+    print()
+    return answers
+
+
+def _cmd_design(args: argparse.Namespace) -> int:
+    import anthropic
+
+    from crmbuilder import design as designer
+
+    spec = _load_spec(args.spec)
+    if args.brief:
+        try:
+            brief = Path(args.brief).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise _Failure(f"cannot read the brief: {exc}", 2) from exc
+    else:
+        brief = args.brief_text or ""
+    if not brief.strip():
+        raise _Failure("give the task with --brief FILE or --brief-text TEXT", 2)
+
+    model = args.model or os.environ.get("CRMBUILDER_MODEL", designer.DEFAULT_MODEL)
+    effort = args.effort or os.environ.get("CRMBUILDER_EFFORT", designer.DEFAULT_EFFORT)
+    print(f"designing with {model} (effort {effort}); only the portal structure is sent\n")
+    try:
+        result = designer.design(
+            _anthropic_client(),
+            spec,
+            brief,
+            ask=None if args.no_questions else _ask_in_console,
+            report=print,
+            model=model,
+            effort=effort,
+        )
+    except designer.DesignError as exc:
+        raise _Failure(str(exc)) from exc
+    except anthropic.AuthenticationError as exc:
+        raise _Failure(
+            "the Anthropic API key is missing or invalid: set ANTHROPIC_API_KEY in .env "
+            "(console.anthropic.com -> API keys)",
+            2,
+        ) from exc
+    except anthropic.PermissionDeniedError as exc:
+        raise _Failure(f"Anthropic API refused access: {exc.message}") from exc
+    except anthropic.RateLimitError as exc:
+        raise _Failure("Anthropic API rate limit reached, try again in a minute") from exc
+    except anthropic.APIStatusError as exc:
+        raise _Failure(f"Anthropic API error {exc.status_code}: {exc.message}") from exc
+    except anthropic.APIConnectionError as exc:
+        hint = ""
+        if "CERTIFICATE_VERIFY_FAILED" in repr(exc.__cause__) or "CERTIFICATE" in str(exc):
+            hint = " (certificate problem: see BITRIX_CA_BUNDLE in README, it applies here too)"
+        raise _Failure(f"cannot reach the Anthropic API{hint}: {exc}") from exc
+
+    print("\n" + (result.summary or "(no summary)"))
+    usage = result.usage
+    cost = usage.cost(model)
+    cost_text = f", about ${cost:.2f}" if cost is not None else ""
+    read = usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens
+    print(
+        f"\n[{usage.requests} request(s): {read} tokens read, "
+        f"{usage.output_tokens} written{cost_text}]"
+    )
+
+    plan = diff_specs(spec, result.spec)
+    print()
+    print(_indent(plan))
+    if not plan.changes:
+        return 0
+
+    target = Path(args.output) if args.output else Path(args.spec)
+    if not args.yes:
+        print(f"\nSave these changes to {target}? The portal is not touched. [y/N] ", end="")
+        try:
+            answer = input().strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes", "д", "да"):
+            print("not saved")
+            return 1
+    result_spec = result.spec.model_copy(update={"portal": spec.portal})
+    dump_spec(result_spec, target)
+    print(f"saved to {target}; next: crmbuilder plan {target}, then apply")
+    return 0
+
+
 def _cmd_template_list(args: argparse.Namespace) -> int:
     for name, description in templates.available().items():
         print(f"{name:<16}{description}")
@@ -363,6 +472,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollback.add_argument("--to", metavar="SNAPSHOT", help="snapshot name from .history")
     add_write_options(p_rollback)
     p_rollback.set_defaults(func=_cmd_rollback)
+
+    p_design = sub.add_parser(
+        "design", help="let Claude edit the spec from a brief (ТЗ); the portal is not touched"
+    )
+    p_design.add_argument("spec", help="spec YAML to edit")
+    p_design.add_argument("--brief", metavar="FILE", help="text file with the brief")
+    p_design.add_argument("--brief-text", metavar="TEXT", help="the brief as a string")
+    p_design.add_argument("-o", "--output", help="write the result here (default: the spec)")
+    p_design.add_argument("--model", help="Claude model (default: $CRMBUILDER_MODEL or Opus 5.5)")
+    p_design.add_argument(
+        "--effort",
+        choices=["low", "medium", "high", "xhigh", "max"],
+        help="how hard the model thinks (default: $CRMBUILDER_EFFORT or high)",
+    )
+    p_design.add_argument(
+        "--no-questions", action="store_true", help="do not ask, decide on assumptions"
+    )
+    p_design.add_argument("--yes", action="store_true", help="save without asking")
+    p_design.set_defaults(func=_cmd_design)
 
     p_template = sub.add_parser("template", help="ready-made configurations")
     template_sub = p_template.add_subparsers(dest="template_command", required=True)
