@@ -166,3 +166,20 @@ def test_import_refuses_state_of_other_portal(portal: FakePortal, tmp_path, monk
     out = tmp_path / "portal.yaml"
     assert cli.main(["import", "--webhook", "https://x/rest/1/t/", "-o", str(out)]) == 2
     assert "belongs to other.bitrix24.ru" in capsys.readouterr().err
+
+
+def test_certificate_error_has_a_hint(monkeypatch, capsys):
+    import httpx
+
+    from crmbuilder.bitrix import BitrixClient
+
+    def fail(request):
+        raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+
+    monkeypatch.setattr(
+        cli,
+        "BitrixClient",
+        lambda url, **kw: BitrixClient(url, transport=httpx.MockTransport(fail)),
+    )
+    assert cli.main(["import", "--webhook", "https://x/rest/1/t/"]) == 1
+    assert "BITRIX_CA_BUNDLE=/workspace/ca.pem" in capsys.readouterr().err

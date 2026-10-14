@@ -47,7 +47,15 @@ def _read_portal(client: BitrixClient, lang: str, previous: State | None) -> Imp
     except BitrixError as exc:
         raise _Failure(f"Bitrix24 API: {exc}") from exc
     except httpx.HTTPError as exc:
-        raise _Failure(f"cannot reach the portal: {exc}") from exc
+        message = f"cannot reach the portal: {exc}"
+        if "CERTIFICATE_VERIFY_FAILED" in str(exc):
+            message += (
+                "\nhint: the portal's certificate is not trusted inside the container. This is "
+                "usually an antivirus or corporate proxy that inspects HTTPS, or a national "
+                "certificate authority. Save that root certificate as workspace/ca.pem and set "
+                "BITRIX_CA_BUNDLE=/workspace/ca.pem in .env (see README, 'Ошибка SSL')."
+            )
+        raise _Failure(message) from exc
     finally:
         client.close()
 

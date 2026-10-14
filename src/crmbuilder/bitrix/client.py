@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import re
+import ssl
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
+import certifi
 import httpx
 
 # Errors Bitrix returns when the portal throttles requests (~2 req/s per portal).
@@ -48,6 +51,25 @@ def _is_read_method(method: str) -> bool:
     return method in _READ_METHODS or method.rsplit(".", 1)[-1] in _READ_SUFFIXES
 
 
+# Extra trusted certificates (PEM), e.g. an antivirus HTTPS-inspection root or a
+# national CA missing from the standard bundle. Added on top of the usual roots.
+CA_BUNDLE_ENV = "BITRIX_CA_BUNDLE"
+
+
+def ssl_context(extra_ca: str | None = None) -> ssl.SSLContext:
+    context = ssl.create_default_context(cafile=certifi.where())
+    extra_ca = extra_ca if extra_ca is not None else os.environ.get(CA_BUNDLE_ENV, "").strip()
+    if extra_ca:
+        try:
+            context.load_verify_locations(cafile=extra_ca)
+        except (OSError, ssl.SSLError) as exc:
+            raise ValueError(f"{CA_BUNDLE_ENV}: cannot load {extra_ca}: {exc}") from exc
+        # Inspection roots of antivirus software often lack extensions that the
+        # strict mode (default since Python 3.13) requires. The chain is still verified.
+        context.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    return context
+
+
 class ReadOnlyError(RuntimeError):
     """A write method was called through a read-only client."""
 
@@ -76,7 +98,7 @@ class BitrixClient:
         self.webhook_url = normalize_webhook_url(webhook_url)
         # Read-only by default: only `apply` opens a client that may write.
         self.read_only = read_only
-        self._http = httpx.Client(transport=transport, timeout=timeout)
+        self._http = httpx.Client(transport=transport, timeout=timeout, verify=ssl_context())
         self._max_retries = max_retries
         self._sleep = sleep
 

@@ -105,3 +105,26 @@ def test_writable_client_may_write():
 
     client = BitrixClient(WEBHOOK, transport=httpx.MockTransport(handle), read_only=False)
     assert client.call("crm.status.add", {"fields": {}}) == 7
+
+
+def test_extra_ca_bundle_is_loaded(tmp_path, monkeypatch):
+    import certifi
+
+    from crmbuilder.bitrix.client import ssl_context
+
+    base = len(ssl_context("").get_ca_certs())
+    pem = tmp_path / "extra.pem"
+    # Any valid root works for the test: take the first one from certifi's bundle.
+    first = certifi.contents().split("-----END CERTIFICATE-----")[0] + "-----END CERTIFICATE-----\n"
+    pem.write_text(first)
+    monkeypatch.setenv("BITRIX_CA_BUNDLE", str(pem))
+    assert len(ssl_context().get_ca_certs()) >= base  # loads without error
+    BitrixClient(WEBHOOK)  # the client accepts it too
+
+
+def test_bad_ca_bundle_is_a_clear_error(tmp_path, monkeypatch, capsys):
+    from crmbuilder import cli
+
+    monkeypatch.setenv("BITRIX_CA_BUNDLE", str(tmp_path / "missing.pem"))
+    assert cli.main(["import", "--webhook", WEBHOOK]) == 2
+    assert "BITRIX_CA_BUNDLE: cannot load" in capsys.readouterr().err
