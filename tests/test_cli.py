@@ -73,3 +73,8 @@ def test_import_reports_network_errors(monkeypatch, capsys):
     )
     assert cli.main(["import", "--webhook", "https://x/rest/1/t/"]) == 1
     assert "cannot reach the portal" in capsys.readouterr().err
+
+
+def test_import_rejects_malformed_webhook(capsys):
+    assert cli.main(["import", "--webhook", "https://clinic.bitrix24.ru/crm/deal/"]) == 2
+    assert "invalid webhook URL" in capsys.readouterr().err

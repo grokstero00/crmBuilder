@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from crmbuilder.bitrix import BitrixClient, BitrixError
+from crmbuilder.bitrix import BitrixClient, BitrixError, normalize_webhook_url
 
 from .conftest import WEBHOOK, FakePortal, paginate
 
@@ -53,3 +53,38 @@ def test_query_limit_gives_up_after_max_retries():
     )
     with pytest.raises(BitrixError, match="QUERY_LIMIT_EXCEEDED"):
         client.call("crm.deal.list")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "https://clinic.bitrix24.ru/rest/1/abc123/",
+        "https://clinic.bitrix24.ru/rest/1/abc123",
+        "  'https://clinic.bitrix24.ru/rest/1/abc123/'  ",
+        "https://clinic.bitrix24.ru/rest/1/abc123/profile.json",
+        "https://clinic.bitrix24.ru/rest/1/abc123/crm.deal.list.json?start=0",
+    ],
+)
+def test_webhook_url_is_normalized(raw):
+    assert normalize_webhook_url(raw) == "https://clinic.bitrix24.ru/rest/1/abc123/"
+
+
+def test_webhook_url_keeps_port():
+    assert normalize_webhook_url("http://127.0.0.1:8080/rest/7/t") == (
+        "http://127.0.0.1:8080/rest/7/t/"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "",
+        "clinic.bitrix24.ru/rest/1/abc123/",
+        "https://clinic.bitrix24.ru/",
+        "https://clinic.bitrix24.ru/rest/abc123/",
+        "https://clinic.bitrix24.ru/crm/deal/",
+    ],
+)
+def test_invalid_webhook_url_is_rejected(raw):
+    with pytest.raises(ValueError, match="expected https://"):
+        normalize_webhook_url(raw)

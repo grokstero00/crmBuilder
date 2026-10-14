@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -10,6 +11,32 @@ import httpx
 
 # Errors Bitrix returns when the portal throttles requests (~2 req/s per portal).
 _RETRYABLE_ERRORS = {"QUERY_LIMIT_EXCEEDED", "OPERATION_TIME_LIMIT"}
+
+
+_WEBHOOK_PATH = re.compile(r"^/rest/(\d+)/([^/]+)$")
+
+
+def normalize_webhook_url(url: str) -> str:
+    """Return ``https://<portal>/rest/<user_id>/<token>/`` or raise ValueError.
+
+    Tolerates what people paste from the Bitrix24 webhook form: surrounding
+    quotes/spaces, a missing trailing slash, or a sample method such as
+    ``.../profile.json`` at the end.
+    """
+    url = url.strip().strip("'\"")
+    hint = "expected https://<portal>.bitrix24.ru/rest/<user_id>/<token>/"
+    try:
+        parsed = httpx.URL(url)
+    except httpx.InvalidURL as exc:
+        raise ValueError(f"invalid webhook URL: {hint}") from exc
+    if parsed.scheme not in ("http", "https") or not parsed.host:
+        raise ValueError(f"invalid webhook URL: {hint}")
+    path = parsed.path.rstrip("/")
+    if re.search(r"\.(json|xml)$", path):
+        path = path.rsplit("/", 1)[0]
+    if not _WEBHOOK_PATH.match(path):
+        raise ValueError(f"invalid webhook URL: {hint}")
+    return str(parsed.copy_with(path=path + "/", query=None, fragment=None))
 
 
 class BitrixError(RuntimeError):
@@ -32,9 +59,7 @@ class BitrixClient:
         sleep: Callable[[float], None] = time.sleep,
         timeout: float = 30.0,
     ) -> None:
-        if not webhook_url:
-            raise ValueError("webhook_url is required")
-        self.webhook_url = webhook_url.rstrip("/") + "/"
+        self.webhook_url = normalize_webhook_url(webhook_url)
         self._http = httpx.Client(transport=transport, timeout=timeout)
         self._max_retries = max_retries
         self._sleep = sleep

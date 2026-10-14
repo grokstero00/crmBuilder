@@ -29,6 +29,9 @@ def _cmd_import(args: argparse.Namespace) -> int:
     try:
         with BitrixClient(webhook) as client:
             result = import_portal(client, lang=args.lang)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except BitrixError as exc:
         print(f"error: Bitrix24 API: {exc}", file=sys.stderr)
         return 1
