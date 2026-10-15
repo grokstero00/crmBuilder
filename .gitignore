@@ -11,3 +11,4 @@ build/
 !.env.example
 workspace/*
 !workspace/.gitkeep
+*.db
