@@ -106,6 +106,7 @@ class Applier:
         self.result = ApplyResult()
         self._handled: set[str] = set()
         self._planned: set[str] = set()
+        self._created_sps: set[str] = set()
 
     # --- spec lookups -------------------------------------------------------------
 
@@ -140,6 +141,14 @@ class Applier:
         remote = self.state.get(f"crm.smart_processes.{parts['sp']}")
         return int(remote["entity_type_id"]) if remote else None
 
+    def _sp_available(self, sp_key: str) -> bool:
+        """The smart process exists on the portal or is created earlier in this plan."""
+        address = f"crm.smart_processes.{sp_key}"
+        return self.state.get(address) is not None or address in self._created_sps
+
+    def _desired_sp(self, sp_key: str):
+        return next((s for s in self.desired.crm.smart_processes if s.key == sp_key), None)
+
     def _stages_managed(self, parts: dict) -> bool:
         if "sp" not in parts:
             return True
@@ -155,6 +164,7 @@ class Applier:
     # --- checks before writing ----------------------------------------------------------
 
     def unsupported(self, plan: Plan) -> list[Unsupported]:
+        self._note_plan(plan)
         problems = []
         for change in plan.changes:
             reason = self._unsupported_reason(change)
@@ -162,17 +172,52 @@ class Applier:
                 problems.append(Unsupported(change, reason))
         return problems
 
+    def _note_plan(self, plan: Plan) -> None:
+        self._planned = {c.address for c in plan.changes}
+        self._created_sps = {
+            c.address
+            for c in plan.changes
+            if c.action is Action.create and _parse(c.address)[0] == "smart_process"
+        }
+
+    def _smart_process_reason(self, change: Change, sp_key: str) -> str:
+        if change.action is Action.delete:
+            return ""
+        sp = self._desired_sp(sp_key)
+        if change.action is Action.update and "stages_enabled" in change.attributes:
+            return (
+                "turning stages of an existing smart process on or off is not supported: "
+                "change it in Bitrix24 and run import"
+            )
+        if len(sp.categories) > 1 and not sp.categories_enabled:
+            return "several pipelines need categories_enabled: true"
+        if change.action is Action.create:
+            defaults = [c for c in sp.categories if c.default]
+            if len(defaults) != 1:
+                return (
+                    "a new smart process always gets one default pipeline from Bitrix24: "
+                    "mark exactly one category with default: true"
+                )
+            if not sp.stages_enabled and any(c.stages for c in sp.categories):
+                return "stages are listed but stages_enabled is false"
+            if sp.stages_enabled and not defaults[0].stages:
+                return "stages_enabled is true: list the stages of the default pipeline"
+        return ""
+
     def _unsupported_reason(self, change: Change) -> str:
         kind, parts = _parse(change.address)
         attrs = change.attributes
         if kind == "smart_process":
-            return (
-                "smart processes themselves are not managed by apply yet, change them in Bitrix24"
-            )
-        if kind in ("category", "stage") and self._entity_type_id(parts) is None:
+            return self._smart_process_reason(change, parts["sp"])
+        if kind in ("category", "stage") and "sp" in parts and not self._sp_available(parts["sp"]):
             return f"smart process {parts['sp']!r} does not exist on the portal"
         if kind == "category":
-            if change.action is Action.create and self._category(self.desired, parts).default:
+            new_sp = "sp" in parts and f"crm.smart_processes.{parts['sp']}" in self._created_sps
+            if (
+                change.action is Action.create
+                and self._category(self.desired, parts).default
+                and not new_sp  # the default pipeline of a new smart process comes from Bitrix
+            ):
                 return "a new pipeline cannot be made the default one"
             if change.action is Action.update and "default" in attrs:
                 return "changing the default pipeline is not supported"
@@ -199,14 +244,14 @@ class Applier:
             for setting in desired.settings:
                 if setting.startswith(SMART_PROCESS_LINK_PREFIX):
                     sp_key = setting.removeprefix(SMART_PROCESS_LINK_PREFIX)
-                    if self.state.get(f"crm.smart_processes.{sp_key}") is None:
+                    if not self._sp_available(sp_key):
                         return f"links to smart process {sp_key!r}, which does not exist"
         return ""
 
     # --- running -------------------------------------------------------------------
 
     def apply(self, plan: Plan) -> ApplyResult:
-        self._planned = {c.address for c in plan.changes}
+        self._note_plan(plan)
         for change in sorted(plan.changes, key=self._order):
             if change.address in self._handled:
                 self.result.done.append(change)
@@ -233,6 +278,8 @@ class Applier:
             if change.action is Action.delete:
                 return (8, -depth)
             return (4, 0)
+        if kind == "smart_process":
+            return {Action.create: (0.5,), Action.update: (1,)}.get(change.action, (9,))
         if change.action is Action.delete:
             return {"stage": (5,), "value": (3,), "field": (6,), "category": (7,)}.get(kind, (9,))
         return {"category": (1,), "stage": (2,), "field": (3,), "value": (3,)}.get(kind, (9,))
@@ -353,6 +400,62 @@ class Applier:
             "crm.category.delete",
             {"entityTypeId": self._entity_type_id(parts), "id": self._remote_id(change.address)},
         )
+        self.state.drop(change.address)
+
+    # --- smart processes -----------------------------------------------------------------
+
+    def _create_smart_process(self, change: Change, parts: dict) -> None:
+        sp = self._desired_sp(parts["sp"])
+        fields = {
+            "title": sp.title,
+            "code": sp.code or sp.key,
+            "isStagesEnabled": _yn(sp.stages_enabled),
+            "isCategoriesEnabled": _yn(sp.categories_enabled),
+            "isClientEnabled": _yn(sp.client_enabled),
+        }
+        created = self._call("crm.type.add", {"fields": fields})["type"]
+        entity_type_id = int(created["entityTypeId"])
+        self.state.set(change.address, id=int(created["id"]), entity_type_id=entity_type_id)
+
+        # Bitrix24 creates the default pipeline itself: turn it into the desired one.
+        desired = next(c for c in sp.categories if c.default)
+        result = self.client.call("crm.category.list", {"entityTypeId": entity_type_id})
+        auto = result.get("categories", [])
+        default = next((c for c in auto if c.get("isDefault") == "Y"), auto[0] if auto else None)
+        if default is None:
+            raise ApplyError(f"{change.address}: Bitrix24 created no default pipeline")
+        cat_id = int(default["id"])
+        cat_address = f"{change.address}.categories.{desired.key}"
+        self.state.set(cat_address, id=cat_id)
+        fields = {}
+        if default.get("name") != desired.name:
+            fields["name"] = desired.name
+        if desired.sort is not None and str(default.get("sort")) != str(desired.sort):
+            fields["sort"] = desired.sort
+        if fields:
+            self._call(
+                "crm.category.update",
+                {"entityTypeId": entity_type_id, "id": cat_id, "fields": fields},
+            )
+        self._handled.add(cat_address)
+        prefix = f"{cat_address}.stages."
+        self._handled.update(a for a in self._planned if a.startswith(prefix))
+        if sp.stages_enabled:
+            self._reconcile_new_stages(cat_address, entity_type_id, cat_id, desired.stages)
+
+    def _update_smart_process(self, change: Change, parts: dict) -> None:
+        sp = self._desired_sp(parts["sp"])
+        names = {
+            "title": ("title", lambda v: v),
+            "code": ("code", lambda v: v or ""),
+            "client_enabled": ("isClientEnabled", _yn),
+            "categories_enabled": ("isCategoriesEnabled", _yn),
+        }
+        fields = {names[a][0]: names[a][1](getattr(sp, a)) for a in change.attributes if a in names}
+        self._call("crm.type.update", {"id": self._remote_id(change.address), "fields": fields})
+
+    def _delete_smart_process(self, change: Change, parts: dict) -> None:
+        self._call("crm.type.delete", {"id": self._remote_id(change.address)})
         self.state.drop(change.address)
 
     # --- stages -------------------------------------------------------------------------

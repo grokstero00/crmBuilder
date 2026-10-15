@@ -446,6 +446,70 @@ def _cmd_audit(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    from crmbuilder import report as reporter
+
+    spec_path = Path(args.spec)
+    spec = _load_spec(args.spec)
+
+    before_path: Path | None = None
+    if args.before:
+        before_path = Path(args.before)
+    else:
+        history = spec_path.parent / ".history"
+        snapshots = sorted(p for p in history.glob("*") if (p / "before.yaml").exists())
+        if args.since:
+            snapshots = [p for p in snapshots if p.name == args.since]
+            if not snapshots:
+                raise _Failure(f"snapshot {args.since} not found in {history}", 2)
+        if snapshots:
+            before_path = snapshots[0] / "before.yaml"
+    changes = None
+    if before_path is not None:
+        changes = reporter.describe_changes(_load_spec(str(before_path)), spec)
+        print(f"changes counted from {before_path}")
+    else:
+        print("no snapshot found: the report will describe the structure only")
+
+    ai_part = None
+    if args.ai:
+        import anthropic
+
+        from crmbuilder import design as designer
+
+        if not args.brief:
+            raise _Failure("--ai needs --brief: manual steps are derived from the brief", 2)
+        try:
+            brief = Path(args.brief).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise _Failure(f"cannot read the brief: {exc}", 2) from exc
+        model = args.model or os.environ.get("CRMBUILDER_MODEL", designer.DEFAULT_MODEL)
+        effort = args.effort or os.environ.get("CRMBUILDER_EFFORT", designer.DEFAULT_EFFORT)
+        print(f"writing manual steps with {model}; only the portal structure is sent")
+        try:
+            ai_part = reporter.ai_manual_steps(
+                _anthropic_client(), spec, changes or [], brief, model=model, effort=effort
+            )
+        except anthropic.AuthenticationError as exc:
+            raise _Failure("set ANTHROPIC_API_KEY in .env to use --ai", 2) from exc
+        except (anthropic.APIError, RuntimeError) as exc:
+            raise _Failure(f"AI part failed: {exc}") from exc
+        cost = ai_part.usage.cost(model)
+        if cost is not None:
+            print(f"[AI: about ${cost:.4f}]" if cost < 0.01 else f"[AI: about ${cost:.2f}]")
+
+    document = reporter.render(spec, changes=changes, title=args.title or "", ai=ai_part)
+    output = Path(args.output) if args.output else spec_path.with_name("report.md")
+    try:
+        output.write_text(document, encoding="utf-8")
+    except OSError as exc:
+        raise _Failure(f"cannot write the report: {exc}") from exc
+    done = len(changes) if changes is not None else 0
+    manual = len(ai_part.manual_steps) if ai_part else 0
+    print(f"report saved to {output}: {done} change(s), {manual} manual step(s)")
+    return 0
+
+
 def _cmd_template_list(args: argparse.Namespace) -> int:
     for name, description in templates.available().items():
         print(f"{name:<16}{description}")
@@ -567,6 +631,25 @@ def build_parser() -> argparse.ArgumentParser:
     p_audit.add_argument("--json", action="store_true", help="print findings as JSON")
     p_audit.add_argument("-o", "--output", help="also save a Markdown report for the client")
     p_audit.set_defaults(func=_cmd_audit)
+
+    p_report = sub.add_parser("report", help="hand-over report for the client (read-only)")
+    p_report.add_argument("spec", help="spec YAML of the finished portal")
+    p_report.add_argument(
+        "--since",
+        metavar="SNAPSHOT",
+        help="count changes from this .history snapshot "
+        "(default: the earliest one, i.e. the portal before the project)",
+    )
+    p_report.add_argument("--before", metavar="SPEC", help="count changes from this spec file")
+    p_report.add_argument("--brief", help="the brief (ТЗ), needed for --ai")
+    p_report.add_argument("--ai", action="store_true", help="add manual steps written by Claude")
+    p_report.add_argument("--title", help="document title")
+    p_report.add_argument("--model", help="Claude model for --ai")
+    p_report.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"])
+    p_report.add_argument(
+        "-o", "--output", help="where to save (default: report.md next to the spec)"
+    )
+    p_report.set_defaults(func=_cmd_report)
 
     p_template = sub.add_parser("template", help="ready-made configurations")
     template_sub = p_template.add_subparsers(dest="template_command", required=True)
