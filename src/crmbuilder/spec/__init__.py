@@ -1,4 +1,4 @@
-from crmbuilder.spec.io import dump_spec, load_spec
+from crmbuilder.spec.io import dump_spec, load_spec, spec_from_yaml, spec_to_yaml
 from crmbuilder.spec.models import (
     AutomationKind,
     AutomationRule,
@@ -39,4 +39,6 @@ __all__ = [
     "dump_spec",
     "load_spec",
     "resolve_stage",
+    "spec_from_yaml",
+    "spec_to_yaml",
 ]

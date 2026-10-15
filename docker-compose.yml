@@ -1,7 +1,53 @@
 services:
+  # Web interface: http://localhost:3000 after `docker compose up -d --build`.
+  web:
+    build: ./frontend
+    image: crmbuilder-web:latest
+    environment:
+      NUXT_API_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: crmbuilder-api:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      CRMBUILDER_DATABASE_URL: postgresql+psycopg://crmbuilder:${POSTGRES_PASSWORD:-crmbuilder}@db:5432/crmbuilder
+    volumes:
+      # Read-only: for BITRIX_CA_BUNDLE=/workspace/ca.pem behind HTTPS-inspecting antivirus.
+      - ./workspace:/workspace:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: crmbuilder
+      POSTGRES_USER: crmbuilder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crmbuilder}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crmbuilder -d crmbuilder"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   # CLI: docker compose run --rm cli import -o clinic/portal.yaml
-  # Specs and state files land in ./workspace on the host.
+  # Specs and state files land in ./workspace on the host. Not started by `up`.
   cli:
+    profiles: ["cli"]
     build: .
     image: crmbuilder:latest
     # Run as the host user so files written to ./workspace stay editable on the host.
@@ -11,3 +57,6 @@ services:
         required: false
     volumes:
       - ./workspace:/workspace
+
+volumes:
+  pgdata:

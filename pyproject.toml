@@ -18,8 +18,18 @@ dev = [
     "ruff>=0.5",
 ]
 
+[dependency-groups]
+# The web API lives in backend/ as a separate package of the same uv workspace.
+dev = ["crmbuilder-web", "pytest>=8.0", "ruff>=0.5"]
+
 [project.scripts]
 crmbuilder = "crmbuilder.cli:main"
+
+[tool.uv.workspace]
+members = ["backend"]
+
+[tool.uv.sources]
+crmbuilder-web = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -33,7 +43,15 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["frontend"]
 target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["crmbuilder", "crmbuilder_web"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependencies are declared as default values.
+extend-immutable-calls = ["fastapi.Depends"]

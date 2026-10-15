@@ -2,8 +2,34 @@
 
 Конфигурация портала Битрикс24 как код. Портал описывается YAML-спецификацией,
 а сервис приводит живой портал в соответствие с ней: импорт → план → применение →
-откат. Поверх этого ядра будет работать ИИ-агент, который превращает ТЗ в правки
-спецификации.
+откат. Поверх этого ядра работают ИИ-проектировщик (ТЗ → правки спецификации),
+аудит, отчёт для клиента и веб-интерфейс.
+
+## Веб-интерфейс
+
+```bash
+cp .env.example .env               # если ещё нет
+openssl rand -hex 32               # вставить результат в .env: CRMBUILDER_SECRET_KEY=...
+docker compose up -d --build
+```
+
+Откройте http://localhost:3000, зарегистрируйтесь и добавьте проект: название и
+входящий вебхук портала. Дальше на странице проекта:
+
+- «Импортировать портал» — читает воронки, стадии, поля, смарт-процессы и отделы;
+- «Структура» — то же самое в наглядном виде, вместе с роботами из `automation`;
+- «Спецификация» — YAML для правок, проверяется при сохранении;
+- «Показать план» — что изменится на портале. Портал при этом не меняется.
+
+Применение изменений пока делается консольной командой `apply`, в вебе оно появится
+следующим шагом. Остановить: `docker compose down` (данные остаются в томе
+`pgdata`; `docker compose down -v` удаляет и их).
+
+Как устроено: `frontend/` — Nuxt 4 + Vue 3 + официальный UI-кит Битрикс24
+(`@bitrix24/b24ui-nuxt`), `backend/` — FastAPI + SQLAlchemy + PostgreSQL. Сервер
+вызывает тот же код из `src/crmbuilder`, что и консоль. Вебхуки хранятся в базе
+зашифрованными ключом `CRMBUILDER_SECRET_KEY`: если ключ сменить, вебхуки придётся
+ввести заново.
 
 ## Что уже есть
 
@@ -197,12 +223,14 @@ crm:
 
 ```bash
 cp .env.example .env          # вписать BITRIX_WEBHOOK_URL
-docker compose build
+docker compose build cli
 docker compose run --rm cli import -o clinic/portal.yaml
 docker compose run --rm cli plan clinic/portal.yaml
 ```
 
-Файлы появятся в `./workspace/clinic/`.
+Файлы появятся в `./workspace/clinic/`. Консоль не запускается вместе с сайтом по
+`docker compose up`; после обновления кода пересобирайте её командой
+`docker compose build cli`.
 
 Вебхук создаётся в портале: «Разработчикам» → «Другое» → «Входящий вебхук».
 Права: `crm` и `department` (структура компании). Импорт только читает данные.
@@ -241,10 +269,17 @@ docker compose run --rm cli plan clinic/portal.yaml
 ## Локальная разработка
 
 ```bash
-uv venv && uv pip install -e '.[dev]'
-.venv/bin/pytest
-.venv/bin/ruff check . && .venv/bin/ruff format --check .
+uv sync                                   # ядро, веб-сервер, pytest и ruff
+uv run pytest
+uv run ruff check . && uv run ruff format --check .
+
+# веб-сервер без Docker (база SQLite в текущей папке)
+CRMBUILDER_SECRET_KEY=$(openssl rand -hex 32) uv run crmbuilder-web
+
+# фронтенд (Node 22, pnpm): http://localhost:3000, /api уходит на localhost:8000
+cd frontend && pnpm install && pnpm dev
+pnpm typecheck && pnpm build
 ```
 
 Тесты не ходят в сеть: Битрикс эмулируется через `httpx.MockTransport`
-(`tests/conftest.py`).
+(`tests/conftest.py`, `tests/fake_bitrix.py`); тесты веб-сервера лежат в `tests/web`.
