@@ -1,5 +1,7 @@
 from crmbuilder.spec.io import dump_spec, load_spec
 from crmbuilder.spec.models import (
+    AutomationKind,
+    AutomationRule,
     Category,
     CrmSpec,
     Department,
@@ -8,13 +10,18 @@ from crmbuilder.spec.models import (
     Field,
     FieldType,
     PortalSpec,
+    RobotAction,
     SmartProcess,
     Stage,
     StageSemantic,
     StructureSpec,
+    TriggerEvent,
+    resolve_stage,
 )
 
 __all__ = [
+    "AutomationKind",
+    "AutomationRule",
     "Category",
     "CrmSpec",
     "Department",
@@ -23,10 +30,13 @@ __all__ = [
     "Field",
     "FieldType",
     "PortalSpec",
+    "RobotAction",
     "SmartProcess",
     "Stage",
     "StageSemantic",
     "StructureSpec",
+    "TriggerEvent",
     "dump_spec",
     "load_spec",
+    "resolve_stage",
 ]

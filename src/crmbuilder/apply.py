@@ -412,6 +412,7 @@ class Applier:
             "isStagesEnabled": _yn(sp.stages_enabled),
             "isCategoriesEnabled": _yn(sp.categories_enabled),
             "isClientEnabled": _yn(sp.client_enabled),
+            "isAutomationEnabled": _yn(sp.automation_enabled),
         }
         created = self._call("crm.type.add", {"fields": fields})["type"]
         entity_type_id = int(created["entityTypeId"])
@@ -450,6 +451,7 @@ class Applier:
             "code": ("code", lambda v: v or ""),
             "client_enabled": ("isClientEnabled", _yn),
             "categories_enabled": ("isCategoriesEnabled", _yn),
+            "automation_enabled": ("isAutomationEnabled", _yn),
         }
         fields = {names[a][0]: names[a][1](getattr(sp, a)) for a in change.attributes if a in names}
         self._call("crm.type.update", {"id": self._remote_id(change.address), "fields": fields})

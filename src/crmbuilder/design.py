@@ -57,7 +57,8 @@ _ADDRESS_HELP = (
     "valid addresses: crm.deal_categories.<cat>, crm.deal_categories.<cat>.stages.<stage>, "
     "crm.fields.<lead|deal|contact|company>.<field>, "
     "crm.fields.<entity>.<field>.values.<value>, "
-    "crm.smart_processes.<sp>.categories.<cat>[.stages.<stage>], structure.departments.<dep>"
+    "crm.smart_processes.<sp>.categories.<cat>[.stages.<stage>], structure.departments.<dep>, "
+    "automation.<rule>"
 )
 
 
@@ -80,6 +81,8 @@ class SpecEditor:
         crm = self.data["crm"]
         if p[:2] == ["structure", "departments"] and len(p) == 3:
             return self.data["structure"]["departments"], p[2], "department"
+        if p[0] == "automation" and len(p) == 2:
+            return self.data.setdefault("automation", []), p[1], "automation"
         if p[:2] == ["crm", "deal_categories"]:
             return self._category_path(crm["deal_categories"], p[2:], address)
         if p[:2] == ["crm", "fields"] and len(p) in (4, 6):
@@ -144,7 +147,17 @@ class SpecEditor:
         if any(item.get("key") == key for item in items):
             raise EditError(f"{address} already exists; use update to change it")
         items.append({"key": key, **{k: v for k, v in obj.items() if k != "key"}})
+        if kind == "automation":
+            self._enable_automation(obj.get("stage"))
         return self._commit(before, "create", address)
+
+    def _enable_automation(self, stage: Any) -> None:
+        """Robots on a smart process stage need automation switched on for that smart process."""
+        p = str(stage or "").split(".")
+        if len(p) == 7 and p[:2] == ["crm", "smart_processes"]:
+            for sp in self.data["crm"]["smart_processes"]:
+                if sp.get("key") == p[2]:
+                    sp["automation_enabled"] = True
 
     @staticmethod
     def _new_smart_process(obj: dict) -> dict:
@@ -184,6 +197,8 @@ class SpecEditor:
                 "and delete the old one"
             )
         self._find(items, key, address).update(changes)
+        if kind == "automation" and "stage" in changes:
+            self._enable_automation(changes["stage"])
         return self._commit(before, "update", address)
 
     def delete(self, address: str) -> str:
@@ -218,7 +233,8 @@ How the spec works
 - Objects are addressed by dotted paths: crm.deal_categories.<cat>,
   crm.deal_categories.<cat>.stages.<stage>, crm.fields.<lead|deal|contact|company>.<field>,
   crm.fields.<entity>.<field>.values.<value>,
-  crm.smart_processes.<sp>.categories.<cat>.stages.<stage>, structure.departments.<dep>.
+  crm.smart_processes.<sp>.categories.<cat>.stages.<stage>, structure.departments.<dep>,
+  automation.<rule>.
 - Edit with the tools create / update / delete. Each edit is validated; if a tool
   returns an error, read it and fix the edit. view_spec shows the current state.
 
@@ -245,8 +261,21 @@ Bitrix24 rules you must respect
   stages when stages_enabled is true (use keys new / success / fail for the first, success
   and failure stages). client_enabled links it to contacts and companies. Turning stages
   of an existing smart process on or off is a manual step.
-- Robots, business processes, access rights, telephony, integrations, reports and
-  CRM records (contacts, deals) are not part of the spec: list them as manual steps.
+- Robots and triggers on stages go to automation.<rule> as {stage, kind, action or event,
+  title, when, condition, responsible, details}. `stage` is the stage address
+  (crm.deal_categories.<cat>.stages.<stage> or
+  crm.smart_processes.<sp>.categories.<cat>.stages.<stage>). A robot (kind robot) runs
+  when an item enters the stage; action is one of task, notify, sms, email, activity,
+  change_responsible, change_stage, update_fields, create_document, comment, webhook, other.
+  A trigger (kind trigger) moves an item to the stage when its event happens; event is one
+  of webform, call, missed_call, email, openline, payment, field_changed, webhook, other.
+  title says what it does ("Задача менеджеру: перезвонить клиенту"); when is the delay in
+  plain words ("сразу", "через 1 день", "за 1 день до даты визита"); details holds the
+  task/message text or field values. Bitrix24 cannot set robots up through the API: the
+  tool turns these rules into instructions for the integrator, so add one for every robot,
+  reminder or automatic action the brief asks for. Do not touch rules with done: true.
+- Business processes, access rights, telephony, integrations, reports and CRM records
+  (contacts, deals) are not part of the spec: list them as manual steps.
 
 Working style
 - Keep everything the brief does not mention. Delete existing objects only when the

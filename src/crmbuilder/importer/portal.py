@@ -336,6 +336,7 @@ class _Importer:
                     categories_enabled=_yes(item.get("isCategoriesEnabled")),
                     stages_enabled=stages_enabled,
                     client_enabled=_yes(item.get("isClientEnabled")),
+                    automation_enabled=_yes(item.get("isAutomationEnabled")),
                     categories=categories,
                 )
             )

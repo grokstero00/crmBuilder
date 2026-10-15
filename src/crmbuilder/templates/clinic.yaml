@@ -72,3 +72,27 @@ structure:
   - {key: vrachi, name: Врачи, parent: "@root", sort: 200}
   - {key: terapevty, name: Терапевты, parent: vrachi, sort: 100}
   - {key: stomatologi, name: Стоматологи, parent: vrachi, sort: 200}
+automation:
+- key: zvonok_novoy_zayavke
+  stage: crm.deal_categories.zapis_na_priem.stages.new
+  action: task
+  title: "Задача администратору: перезвонить по новой заявке"
+  when: сразу, срок — 30 минут
+  responsible: ответственный за сделку
+- key: forma_s_sayta
+  stage: crm.deal_categories.zapis_na_priem.stages.new
+  kind: trigger
+  event: webform
+  title: Заявка с формы записи на сайте создаёт сделку на этой стадии
+- key: napominanie_o_prieme
+  stage: crm.deal_categories.zapis_na_priem.stages.zapisan
+  action: sms
+  title: "SMS пациенту: напоминание о приёме"
+  when: за 1 день до поля «Дата и время приёма»
+  details: "Напоминаем о записи на {Дата и время приёма}. Подтвердите визит ответом на SMS."
+- key: perezvonit_ne_prishel
+  stage: crm.deal_categories.zapis_na_priem.stages.lose
+  action: task
+  title: "Задача администратору: связаться с пациентом и перезаписать"
+  when: через 1 час
+  responsible: ответственный за сделку

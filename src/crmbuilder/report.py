@@ -15,6 +15,7 @@ from datetime import date
 from typing import Any
 
 from crmbuilder.apply import _parse
+from crmbuilder.automation import render_instructions
 from crmbuilder.plan import Action, Plan, diff_specs
 from crmbuilder.spec.models import (
     Category,
@@ -342,12 +343,15 @@ AI_SYSTEM_PROMPT = """\
 You are a Bitrix24 implementation consultant writing the hand-over document for a
 client. You receive the client's brief, the list of changes that were configured
 automatically, and the resulting CRM structure. The automatic tool configures only
-pipelines, stages, custom fields, list values and departments.
+pipelines, stages, custom fields, list values, departments and smart processes.
+Robots and triggers listed under automation in the CRM structure already get their
+own instructions in the document: do not repeat them, but do cover robots the brief
+asks for that are missing there.
 
 Write, in Russian:
 - summary: 2-4 sentences for the client's manager on what the setup gives them.
 - manual_steps: everything from the brief that the tool did not configure (robots,
-  business processes, access rights, smart processes, telephony, integrations,
+  business processes, access rights, telephony, integrations,
   forms, reports, data import, onboarding). For each: a short title, why it is needed,
   and concrete numbered steps in the Bitrix24 interface. Interface paths change between
   Bitrix24 versions, so describe them as they usually are and never invent settings
@@ -467,6 +471,7 @@ def render(
             lines += [f"### {section}", ""]
             lines += [f"- {line.text}" for line in group]
             lines.append("")
+    lines += render_instructions(spec)
     if ai and ai.manual_steps:
         lines += ["## Что нужно настроить вручную", ""]
         for n, step in enumerate(ai.manual_steps, 1):
