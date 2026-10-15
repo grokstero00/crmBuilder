@@ -4,6 +4,8 @@ A template uses the spec format without ``portal``/``version`` plus a
 ``description``. In departments, ``parent: "@root"`` means the portal's top
 department. Merging only adds objects whose keys are new; anything already in
 the spec is left untouched, so a template never removes or rewrites settings.
+Automation rules point at stages by address, so they work when the template's
+pipelines are added (or the spec already has the same keys).
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from typing import Any
 
 import yaml
 
-from crmbuilder.spec.models import PortalSpec
+from crmbuilder.spec.models import PortalSpec, automation_target_problem
 
 ROOT_PARENT = "@root"
 
@@ -80,5 +82,15 @@ def merge(spec: PortalSpec, name: str) -> tuple[PortalSpec, MergeReport]:
             if dep.get("parent") == ROOT_PARENT:
                 dep["parent"] = root
         add(existing, departments, "structure.departments")
+
+    # A rule is only added when its stage exists in the merged spec.
+    merged = PortalSpec.model_validate(data)
+    rules = []
+    for rule in template.get("automation", []):
+        if automation_target_problem(merged, rule.get("stage", "")):
+            report.skipped.append(f"automation.{rule['key']}")
+        else:
+            rules.append(rule)
+    add(data["automation"], rules, "automation")
 
     return PortalSpec.model_validate(data), report

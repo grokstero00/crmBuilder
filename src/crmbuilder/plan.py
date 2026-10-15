@@ -255,7 +255,14 @@ class _Differ:
     def _smart_process(
         self, address: str, current: SmartProcess | None, desired: SmartProcess
     ) -> None:
-        names = ["title", "code", "categories_enabled", "stages_enabled", "client_enabled"]
+        names = [
+            "title",
+            "code",
+            "categories_enabled",
+            "stages_enabled",
+            "client_enabled",
+            "automation_enabled",
+        ]
         self._record(address, current, self._attributes(current, desired, names))
         self._keyed(
             f"{address}.categories",

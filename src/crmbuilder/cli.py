@@ -10,9 +10,10 @@ from datetime import datetime
 from pathlib import Path
 
 import httpx
+import yaml
 from pydantic import ValidationError
 
-from crmbuilder import __version__, templates
+from crmbuilder import __version__, automation, templates
 from crmbuilder.apply import Applier
 from crmbuilder.bitrix import BitrixClient, BitrixError
 from crmbuilder.importer import ImportResult, import_portal
@@ -95,6 +96,11 @@ def _cmd_import(args: argparse.Namespace) -> int:
         _check_portal(previous.portal, client, str(state_path))
 
     result = _read_portal(client, args.lang, previous)
+    # Robots cannot be read from the portal: keep the rules from the spec being replaced.
+    old_spec = _previous_spec(spec_path)
+    spec, dropped = automation.carry_over(result.spec, old_spec)
+    result.spec = spec
+    result.warnings += dropped
 
     try:
         for path in (spec_path, state_path):
@@ -110,10 +116,30 @@ def _cmd_import(args: argparse.Namespace) -> int:
     print(f"custom fields:   {sum(len(f) for f in crm.fields.values())}")
     print(f"smart processes: {len(crm.smart_processes)}")
     print(f"departments:     {len(result.spec.structure.departments)}")
+    if result.spec.automation:
+        print(f"automation:      {len(result.spec.automation)} rule(s) kept from {spec_path}")
     print(f"spec  -> {spec_path}")
     print(f"state -> {state_path}" + (" (keys kept from previous import)" if previous else ""))
     _print_warnings(result.warnings)
     return 0
+
+
+def _previous_spec(path: Path) -> PortalSpec | None:
+    if not path.exists():
+        return None
+    try:
+        return load_spec(path)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"warning: {path} is not a valid spec, its automation rules are not kept: {exc}",
+              file=sys.stderr)  # fmt: skip
+        return None
+
+
+def _print_manual(spec: PortalSpec) -> None:
+    text = automation.render_pending(spec)
+    if text:
+        print()
+        print(text)
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
@@ -137,6 +163,8 @@ def _cmd_plan(args: argparse.Namespace) -> int:
 
     plan = diff_specs(current, desired)
     print(plan.to_json() if args.json else plan.render())
+    if not args.json:
+        _print_manual(desired)
     _print_warnings(warnings)
     return 0
 
@@ -250,7 +278,9 @@ def _indent(plan: Plan) -> str:
 
 def _cmd_apply(args: argparse.Namespace) -> int:
     desired = _load_spec(args.spec)
-    return 0 if _apply_spec(args, desired, Path(args.spec)) else 1
+    ok = _apply_spec(args, desired, Path(args.spec))
+    _print_manual(desired)
+    return 0 if ok else 1
 
 
 def _cmd_rollback(args: argparse.Namespace) -> int:
@@ -267,8 +297,10 @@ def _cmd_rollback(args: argparse.Namespace) -> int:
     desired = _load_spec(str(snapshot / "before.yaml"))
     ok = _apply_spec(args, desired, spec_path)
     if ok:
-        dump_spec(desired, spec_path)
+        restored, dropped = automation.carry_over(desired, _previous_spec(spec_path))
+        dump_spec(restored, spec_path)
         print(f"{spec_path} now matches the restored portal")
+        _print_warnings(dropped)
     return 0 if ok else 1
 
 

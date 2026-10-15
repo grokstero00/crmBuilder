@@ -125,7 +125,8 @@ class FakeBitrix:
     def add_smart_process(self, title: str, entity_type_id: int) -> None:
         self.types.append(
             {"id": len(self.types) + 1, "title": title, "code": "", "entityTypeId": entity_type_id,
-             "isCategoriesEnabled": "N", "isStagesEnabled": "Y", "isClientEnabled": "N"}
+             "isCategoriesEnabled": "N", "isStagesEnabled": "Y", "isClientEnabled": "N",
+             "isAutomationEnabled": "N"}
         )  # fmt: skip
         self.add_category(entity_type_id, "Общая воронка", default=True)
 
@@ -348,6 +349,7 @@ class FakeBitrix:
             "isCategoriesEnabled": f.get("isCategoriesEnabled", "N"),
             "isStagesEnabled": f.get("isStagesEnabled", "N"),
             "isClientEnabled": f.get("isClientEnabled", "N"),
+            "isAutomationEnabled": f.get("isAutomationEnabled", "N"),
         }  # fmt: skip
         self.types.append(new)
         # Like Bitrix24: a default pipeline with default stages comes with every smart process.
@@ -356,7 +358,10 @@ class FakeBitrix:
 
     def _crm_type_update(self, p: dict) -> dict:
         t = self._find_type(p["id"])
-        for key in ("title", "code", "isCategoriesEnabled", "isStagesEnabled", "isClientEnabled"):
+        for key in (
+            "title", "code", "isCategoriesEnabled", "isStagesEnabled", "isClientEnabled",
+            "isAutomationEnabled",
+        ):  # fmt: skip
             if key in p.get("fields", {}):
                 t[key] = p["fields"][key]
         return {"result": {"type": copy.deepcopy(t)}}
