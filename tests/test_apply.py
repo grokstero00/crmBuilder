@@ -12,6 +12,7 @@ from crmbuilder.spec import (
     Field,
     FieldType,
     PortalSpec,
+    SmartProcess,
     Stage,
     StageSemantic,
 )
@@ -220,9 +221,24 @@ def test_smart_process_pipeline_stages():
         (lambda s: deal_category(s, "servis").stages.insert(
             0, Stage(key="won2", name="Ещё успех", semantic=StageSemantic.success)),
          "exactly one success stage"),
-        (lambda s: s.crm.smart_processes.append(
-            s.crm.smart_processes[0].model_copy(update={"key": "novyy", "title": "Новый"})),
-         "smart processes themselves"),
+        (lambda s: s.crm.smart_processes.append(SmartProcess(
+            key="novyy", title="Новый", stages_enabled=True,
+            categories=[Category(key="a", name="A", stages=GOOD_STAGES)])),
+         "mark exactly one category with default: true"),
+        (lambda s: s.crm.smart_processes.append(SmartProcess(
+            key="novyy", title="Новый", stages_enabled=True,
+            categories=[Category(key="a", name="A", default=True)])),
+         "list the stages of the default pipeline"),
+        (lambda s: s.crm.smart_processes.append(SmartProcess(
+            key="novyy", title="Новый",
+            categories=[Category(key="a", name="A", default=True, stages=GOOD_STAGES)])),
+         "stages_enabled is false"),
+        (lambda s: s.crm.smart_processes.append(SmartProcess(
+            key="novyy", title="Новый",
+            categories=[Category(key="a", name="A", default=True), Category(key="b", name="B")])),
+         "categories_enabled"),
+        (lambda s: setattr(s.crm.smart_processes[0], "stages_enabled", False),
+         "turning stages of an existing smart process"),
         (lambda s: s.structure.departments.append(Department(key="root2", name="Root 2")),
          "needs a parent"),
     ],
@@ -233,6 +249,83 @@ def test_unsupported_changes_are_reported_before_writing(edit, reason):
     problems = applier.unsupported(plan)
     assert any(reason in p.reason for p in problems), [p.reason for p in problems]
     assert fake.writes == []
+
+
+GOOD_STAGES = [
+    Stage(key="new", name="Черновик", sort=10),
+    Stage(key="soglasovanie", name="Согласование", sort=20),
+    Stage(key="success", name="Действует", semantic=StageSemantic.success, sort=30),
+    Stage(key="fail", name="Истёк", semantic=StageSemantic.failure, sort=40),
+]
+
+
+def test_smart_process_lifecycle():
+    fake = seeded_portal()
+
+    def create(spec):
+        spec.crm.smart_processes.append(
+            SmartProcess(
+                key="dogovory",
+                title="Договоры обслуживания",
+                stages_enabled=True,
+                categories_enabled=True,
+                client_enabled=True,
+                categories=[
+                    Category(key="osnovnye", name="Основные", default=True, stages=GOOD_STAGES),
+                    Category(
+                        key="razovye",
+                        name="Разовые",
+                        stages=[
+                            Stage(key="new", name="Заявка", sort=10),
+                            Stage(
+                                key="won", name="Выполнен", semantic=StageSemantic.success, sort=20
+                            ),
+                        ],
+                    ),
+                ],
+            )
+        )
+        # A field linking deals to the smart process created in the same plan.
+        spec.crm.fields["deal"].append(
+            Field(key="dogovor", label="Договор", type=FieldType.crm,
+                  settings={"SMART_PROCESS:dogovory": "Y"})
+        )  # fmt: skip
+
+    plan, applier, journal = apply_and_verify(fake, create)
+    (created,) = [t for t in fake.types if t["title"] == "Договоры обслуживания"]
+    assert (created["isStagesEnabled"], created["isClientEnabled"]) == ("Y", "Y")
+    etid = created["entityTypeId"]
+    assert {c["name"] for c in fake.categories[etid]} == {"Основные", "Разовые"}
+    link = next(f for f in fake.userfields["deal"] if f["FIELD_NAME"] == "UF_CRM_DOGOVOR")
+    assert link["SETTINGS"] == {f"DYNAMIC_{etid}": "Y"}
+    methods = [e["method"] for e in journal]
+    assert methods.index("crm.type.add") < methods.index("crm.deal.userfield.add")
+    # The default pipeline Bitrix created was reused, not duplicated.
+    assert methods.count("crm.category.add") == 1
+
+    def rename(spec):
+        sp = next(s for s in spec.crm.smart_processes if s.key == "dogovory")
+        sp.title = "Договоры"
+        sp.client_enabled = False
+
+    apply_and_verify(fake, rename)
+    assert (created["title"], created["isClientEnabled"]) == ("Договоры", "N")
+
+    def drop(spec):
+        spec.crm.fields["deal"] = [f for f in spec.crm.fields["deal"] if f.key != "dogovor"]
+        spec.crm.smart_processes = [s for s in spec.crm.smart_processes if s.key != "dogovory"]
+
+    apply_and_verify(fake, drop)
+    assert all(t["title"] != "Договоры" for t in fake.types)
+
+
+def test_smart_process_with_items_is_not_deleted():
+    fake = seeded_portal()
+    fake.busy_types.add(1036)
+    applier, plan, _, _ = prepare(fake, lambda s: s.crm.smart_processes.clear())
+    result = applier.apply(plan)
+    assert not result.ok and "has elements" in result.error
+    assert any(t["entityTypeId"] == 1036 for t in fake.types)
 
 
 def test_failure_stops_and_state_keeps_what_was_done():

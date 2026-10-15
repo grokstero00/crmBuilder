@@ -301,3 +301,32 @@ def test_new_departments_are_listed_parents_first(before):
         "Создан отдел «Врачи» в составе «Компания».",
         "Создан отдел «Терапевты» в составе «Врачи».",
     ]
+
+
+def test_smart_process_sentences(before):
+    from crmbuilder.spec import SmartProcess
+
+    def create(spec):
+        spec.crm.smart_processes.append(SmartProcess(
+            key="dogovory", title="Договоры", stages_enabled=True, categories_enabled=True,
+            client_enabled=True, categories=[
+                Category(key="a", name="Основные", default=True, stages=[
+                    Stage(key="new", name="Черновик", sort=10),
+                    Stage(key="success", name="Действует", semantic=StageSemantic.success,
+                          sort=20),
+                    Stage(key="fail", name="Истёк", semantic=StageSemantic.failure, sort=30)]),
+                Category(key="b", name="Разовые", stages=[
+                    Stage(key="new", name="Заявка", sort=10),
+                    Stage(key="won", name="Готово", semantic=StageSemantic.success,
+                          sort=20)])]))  # fmt: skip
+        spec.crm.smart_processes[0].title = "Заказы клиентов"
+
+    lines = describe_changes(before, edited(before, create))
+    assert [(line.section, line.text) for line in lines] == [
+        ("Смарт-процессы", "Смарт-процесс «Заказы» переименован в «Заказы клиентов»."),
+        ("Смарт-процессы", "Создан смарт-процесс «Договоры» с привязкой к клиентам. "
+         "Воронка «Основные»: Черновик → Действует; провальные: Истёк. "
+         "Воронка «Разовые»: Заявка → Готово."),
+    ]  # fmt: skip
+    gone = edited(before, lambda s: s.crm.smart_processes.clear())
+    assert texts(before, gone) == ["Удалён смарт-процесс «Заказы»."]

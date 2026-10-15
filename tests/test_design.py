@@ -95,7 +95,13 @@ def test_editor_create_update_delete():
         ("create", ("crm.deal_categories.obshchaya", {"name": "X"}), "already exists"),
         ("update", ("crm.deal_categories.obshchaya", {"key": "main"}), "cannot be renamed"),
         ("update", ("crm.deal_categories.nope", {"name": "X"}), "does not exist"),
-        ("create", ("crm.smart_processes.new_sp", {"title": "X"}), "not supported yet"),
+        ("create", ("crm.smart_processes.new_sp", {"title": "X"}), "default pipeline"),
+        ("create", ("crm.smart_processes.new_sp", {"title": "X", "stages_enabled": True,
+                    "categories": [{"key": "a", "name": "A"}]}), "give the default pipeline"),
+        ("create", ("crm.smart_processes.new_sp", {"title": "X", "categories": [
+            {"key": "a", "name": "A", "stages": [{"key": "new", "name": "N"}]}]}),
+         "stages_enabled is not true"),
+        ("update", ("crm.smart_processes.zakazy", {"stages_enabled": False}), "manual step"),
         ("create", ("crm.pipelines.x", {"name": "X"}), "not a valid address"),
         ("create", ("crm.fields.invoice.x", {"label": "X", "type": "string"}), "unknown entity"),
         ("create", ("structure.departments.x", {"name": "X", "parent": "ghost"}), "unknown parent"),
@@ -307,3 +313,48 @@ def test_haiku_cost_is_estimated():
     usage = Usage(input_tokens=12736, output_tokens=3488)
     assert usage.cost("claude-haiku-5-5") == pytest.approx(0.0030176)
     assert usage.cost("some-other-model") is None
+
+
+def test_editor_creates_smart_processes():
+    editor = SpecEditor(base_spec())
+    editor.create("crm.smart_processes.dogovory", {
+        "title": "Договоры", "stages_enabled": True, "client_enabled": True,
+        "categories": [
+            {"key": "osnovnye", "name": "Основные", "stages": [
+                {"key": "new", "name": "Черновик", "sort": 10},
+                {"key": "success", "name": "Действует", "semantic": "success", "sort": 20},
+                {"key": "fail", "name": "Истёк", "semantic": "failure", "sort": 30}]},
+            {"key": "razovye", "name": "Разовые", "stages": [
+                {"key": "new", "name": "Заявка", "sort": 10},
+                {"key": "won", "name": "Готово", "semantic": "success", "sort": 20}]},
+        ],
+    })  # fmt: skip
+    sp = next(s for s in editor.spec.crm.smart_processes if s.key == "dogovory")
+    assert sp.categories[0].default and not sp.categories[1].default  # first made default
+    assert sp.categories_enabled  # two pipelines need it
+    editor.update("crm.smart_processes.dogovory", {"title": "Договоры обслуживания"})
+    editor.delete("crm.smart_processes.zakazy")
+    assert [s.key for s in editor.spec.crm.smart_processes] == ["dogovory"]
+
+
+def test_designed_smart_process_applies_cleanly():
+    fake = seeded_portal()
+    before = import_portal(fake.client())
+    sp = {"title": "Договоры обслуживания", "stages_enabled": True, "categories": [
+        {"key": "obshchaya", "name": "Общая", "stages": [
+            {"key": "new", "name": "Черновик", "sort": 10},
+            {"key": "soglasovanie", "name": "Согласование", "sort": 20},
+            {"key": "success", "name": "Действует", "semantic": "success", "sort": 30},
+            {"key": "fail", "name": "Истёк", "semantic": "failure", "sort": 40}]}]}  # fmt: skip
+    claude = FakeClaude(
+        response("tool_use", tool("create", {"address": "crm.smart_processes.dogovory",
+                                             "object": sp})),
+        response("end_turn", text("Создал смарт-процесс.")),
+    )  # fmt: skip
+    result = design(claude, before.spec, "Нужен смарт-процесс «Договоры обслуживания»")
+    plan = diff_specs(before.spec, result.spec)
+    applier = Applier(fake.writable_client(), before.spec, result.spec, before.state)
+    assert applier.unsupported(plan) == []
+    assert applier.apply(plan).ok
+    after = import_portal(fake.client(), previous_state=applier.state)
+    assert diff_specs(after.spec, result.spec).changes == []

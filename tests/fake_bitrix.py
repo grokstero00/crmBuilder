@@ -57,6 +57,7 @@ class FakeBitrix:
         # Stage codes / (entityTypeId, category id) that hold CRM items.
         self.busy_statuses: set[str] = set()
         self.busy_categories: set[tuple[int, int]] = set()
+        self.busy_types: set[int] = set()  # entityTypeIds of smart processes with items
         self.calls: list[tuple[str, dict]] = []
         self._next_id = 1000
 
@@ -328,6 +329,48 @@ class FakeBitrix:
     # smart processes
     def _crm_type_list(self, p: dict) -> dict:
         return {"result": {"types": copy.deepcopy(self.types)}, "total": len(self.types)}
+
+    def _find_type(self, type_id: Any) -> dict:
+        for t in self.types:
+            if t["id"] == int(type_id):
+                return t
+        raise ApiError("0", "Smart process not found")
+
+    def _crm_type_add(self, p: dict) -> dict:
+        f = p["fields"]
+        if not str(f.get("title", "")).strip():
+            raise ApiError("ERROR_CORE", "title is required")
+        used = {t["entityTypeId"] for t in self.types}
+        entity_type_id = next(n for n in range(1030, 10000, 2) if n not in used)
+        new = {
+            "id": max((t["id"] for t in self.types), default=0) + 1,
+            "title": f["title"], "code": f.get("code", ""), "entityTypeId": entity_type_id,
+            "isCategoriesEnabled": f.get("isCategoriesEnabled", "N"),
+            "isStagesEnabled": f.get("isStagesEnabled", "N"),
+            "isClientEnabled": f.get("isClientEnabled", "N"),
+        }  # fmt: skip
+        self.types.append(new)
+        # Like Bitrix24: a default pipeline with default stages comes with every smart process.
+        self.add_category(entity_type_id, "Общая", default=True)
+        return {"result": {"type": copy.deepcopy(new)}}
+
+    def _crm_type_update(self, p: dict) -> dict:
+        t = self._find_type(p["id"])
+        for key in ("title", "code", "isCategoriesEnabled", "isStagesEnabled", "isClientEnabled"):
+            if key in p.get("fields", {}):
+                t[key] = p["fields"][key]
+        return {"result": {"type": copy.deepcopy(t)}}
+
+    def _crm_type_delete(self, p: dict) -> dict:
+        t = self._find_type(p["id"])
+        etid = t["entityTypeId"]
+        if etid in self.busy_types:
+            raise ApiError("BX_ERROR", "You cannot delete an entity type that has elements")
+        self.types.remove(t)
+        self.categories.pop(etid, None)
+        prefix = f"DYNAMIC_{etid}_STAGE_"
+        self.statuses = [s for s in self.statuses if not s["ENTITY_ID"].startswith(prefix)]
+        return {"result": None}
 
     # departments
     def _department_get(self, p: dict) -> dict:

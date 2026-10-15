@@ -135,13 +135,10 @@ class SpecEditor:
     def create(self, address: str, obj: dict) -> str:
         before = copy.deepcopy(self.data)
         items, key, kind = self._resolve(address, create=True)
-        if kind == "smart_process":
-            raise EditError(
-                "creating smart processes is not supported yet; list it as a manual step in "
-                "the final summary instead"
-            )
         if not isinstance(obj, dict):
             raise EditError("object must be a JSON object")
+        if kind == "smart_process":
+            obj = self._new_smart_process(obj)
         if obj.get("key", key) != key:
             raise EditError(f"object key {obj['key']!r} does not match the address key {key!r}")
         if any(item.get("key") == key for item in items):
@@ -149,11 +146,36 @@ class SpecEditor:
         items.append({"key": key, **{k: v for k, v in obj.items() if k != "key"}})
         return self._commit(before, "create", address)
 
+    @staticmethod
+    def _new_smart_process(obj: dict) -> dict:
+        """Bitrix24 gives every new smart process exactly one default pipeline."""
+        obj = copy.deepcopy(obj)
+        categories = obj.setdefault("categories", [])
+        if not categories:
+            raise EditError(
+                "a new smart process needs its default pipeline in `categories` "
+                "(e.g. key obshchaya, name Общая, default true, with stages if stages_enabled)"
+            )
+        if not any(c.get("default") for c in categories):
+            categories[0]["default"] = True
+        if obj.get("stages_enabled"):
+            default = next(c for c in categories if c.get("default"))
+            if not default.get("stages"):
+                raise EditError("stages_enabled is true: give the default pipeline its stages")
+        elif any(c.get("stages") for c in categories):
+            raise EditError("stages are given but stages_enabled is not true")
+        if len(categories) > 1:
+            obj["categories_enabled"] = True
+        return obj
+
     def update(self, address: str, changes: dict) -> str:
         before = copy.deepcopy(self.data)
         items, key, kind = self._resolve(address)
-        if kind == "smart_process":
-            raise EditError("smart processes themselves cannot be changed yet")
+        if kind == "smart_process" and "stages_enabled" in (changes or {}):
+            raise EditError(
+                "stages of an existing smart process cannot be turned on or off by the tool: "
+                "list it as a manual step"
+            )
         if not isinstance(changes, dict) or not changes:
             raise EditError("changes must be a non-empty JSON object")
         if "key" in changes and changes["key"] != key:
@@ -167,8 +189,6 @@ class SpecEditor:
     def delete(self, address: str) -> str:
         before = copy.deepcopy(self.data)
         items, key, kind = self._resolve(address)
-        if kind == "smart_process":
-            raise EditError("deleting smart processes is not supported")
         items.remove(self._find(items, key, address))
         return self._commit(before, "delete", address)
 
@@ -219,9 +239,12 @@ Bitrix24 rules you must respect
   {"SMART_PROCESS:<sp_key>": "Y"}. Type and `multiple` of an existing field cannot be
   changed without losing its data: avoid it unless the brief explicitly asks.
 - New departments need a `parent` (an existing department key or one you create).
-- Smart processes themselves cannot be created or changed by the tool yet; their
-  pipelines and stages can. If the brief needs a new smart process, list it as a manual
-  step instead.
+- Smart processes (crm.smart_processes.<key>) are created as {title, stages_enabled,
+  categories_enabled, client_enabled, categories: [...]}. Bitrix24 gives every new smart
+  process one default pipeline: include it in `categories` with default true, and with its
+  stages when stages_enabled is true (use keys new / success / fail for the first, success
+  and failure stages). client_enabled links it to contacts and companies. Turning stages
+  of an existing smart process on or off is a manual step.
 - Robots, business processes, access rights, telephony, integrations, reports and
   CRM records (contacts, deals) are not part of the spec: list them as manual steps.
 

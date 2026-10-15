@@ -258,7 +258,23 @@ def _sentence(change, kind: str, parts: dict, before: PortalSpec, after: PortalS
             return f"Отдел «{attrs['name'][0]}» переименован в «{attrs['name'][1]}»."
         return f"Изменено положение отдела «{name}» в структуре."
     if kind == "smart_process":
-        return f"Изменены настройки смарт-процесса «{parts['sp']}»."
+        sp = next((x for x in spec.crm.smart_processes if x.key == parts["sp"]), None)
+        name = sp.title if sp else parts["sp"]
+        if action is Action.create:
+            text = f"Создан смарт-процесс «{name}»"
+            if sp.client_enabled:
+                text += " с привязкой к клиентам"
+            if not sp.stages_enabled:
+                return text + "."
+            if len(sp.categories) == 1:
+                return f"{text}, стадии{_stage_list(sp.categories[0])}"
+            pipelines = " ".join(f"Воронка «{c.name}»{_stage_list(c)}" for c in sp.categories)
+            return f"{text}. {pipelines}"
+        if action is Action.delete:
+            return f"Удалён смарт-процесс «{name}»."
+        if "title" in attrs:
+            return f"Смарт-процесс «{attrs['title'][0]}» переименован в «{attrs['title'][1]}»."
+        return f"Изменены настройки смарт-процесса «{name}»."
     return ""
 
 
