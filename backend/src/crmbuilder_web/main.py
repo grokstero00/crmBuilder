@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,13 +14,18 @@ from crmbuilder.bitrix import BitrixClient
 from crmbuilder_web.config import Settings
 from crmbuilder_web.db import make_engine, make_sessionmaker
 from crmbuilder_web.deps import BitrixFactory
-from crmbuilder_web.routes import auth, projects
+from crmbuilder_web.routes import auth, projects, runs
+from crmbuilder_web.runs import Executor, Runner, mark_interrupted
 from crmbuilder_web.security import Cipher
 
 
-def _read_only_client(webhook: str) -> BitrixClient:
-    # The web API only reads portals for now; writing comes with apply.
-    return BitrixClient(webhook, read_only=True)
+def _client(webhook: str, *, writable: bool = False) -> BitrixClient:
+    # Read-only unless a run asks for a writer: the client then refuses every write method.
+    return BitrixClient(webhook, read_only=not writable)
+
+
+def _in_thread(job) -> None:
+    threading.Thread(target=job, daemon=True).start()
 
 
 _FIELD_NAMES = {
@@ -48,7 +54,9 @@ async def _validation_error(request: Request, exc: RequestValidationError) -> JS
 
 
 def create_app(
-    settings: Settings | None = None, bitrix_factory: BitrixFactory | None = None
+    settings: Settings | None = None,
+    bitrix_factory: BitrixFactory | None = None,
+    run_executor: Executor | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     app = FastAPI(title="crmbuilder", version=__version__, docs_url="/api/docs",
@@ -57,11 +65,14 @@ def create_app(
     app.state.engine = make_engine(settings.database_url)
     app.state.sessionmaker = make_sessionmaker(app.state.engine)
     app.state.cipher = Cipher(settings.secret_key)
-    app.state.bitrix_factory = bitrix_factory or _read_only_client
+    app.state.bitrix_factory = bitrix_factory or _client
+    app.state.runner = Runner(app.state.sessionmaker, app.state.cipher, app.state.bitrix_factory)
+    app.state.run_executor = run_executor or _in_thread
 
     app.add_exception_handler(RequestValidationError, _validation_error)
     app.include_router(auth.router, prefix="/api")
     app.include_router(projects.router, prefix="/api")
+    app.include_router(runs.router, prefix="/api")
 
     @app.get("/api/health", tags=["meta"])
     def health() -> dict[str, str]:
@@ -77,8 +88,10 @@ def run() -> None:
 
     settings = Settings.from_env()
     upgrade(settings.database_url)
+    app = create_app(settings)
+    mark_interrupted(app.state.sessionmaker)
     uvicorn.run(
-        create_app(settings),
+        app,
         host=os.environ.get("CRMBUILDER_HOST", "0.0.0.0"),
         port=int(os.environ.get("CRMBUILDER_PORT", "8000")),
         proxy_headers=True,

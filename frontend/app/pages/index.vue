@@ -37,6 +37,7 @@ function formatDate(value: string | null) {
               <B24Badge :label="`воронок: ${p.counts.deal_categories}`" />
               <B24Badge :label="`полей: ${p.counts.fields}`" />
               <B24Badge v-if="p.counts.smart_processes" :label="`смарт-процессов: ${p.counts.smart_processes}`" />
+              <B24Badge v-if="p.allow_write" color="air-primary-warning" label="изменения разрешены" />
               <B24Badge
                 v-if="p.counts.automation_pending"
                 color="air-primary-warning"
