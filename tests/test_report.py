@@ -50,12 +50,19 @@ def test_pipeline_changes(before):
             Stage(key="won", name="Выиграли", semantic=StageSemantic.success, sort=20),
         ]))  # fmt: skip
         spec.crm.deal_categories[1].name = "Сервисный отдел"
+        spec.crm.deal_categories.append(Category(key="audit", name="Аудит", stages=[
+            Stage(key="new", name="Начало", sort=10),
+            Stage(key="won", name="Готово", semantic=StageSemantic.success, sort=20),
+            Stage(key="lose", name="Отказ", semantic=StageSemantic.failure, sort=30),
+            Stage(key="nc", name="Нет связи", semantic=StageSemantic.failure, sort=40),
+        ]))  # fmt: skip
 
     lines = texts(before, edited(before, change))
     assert "В воронке «Общая» стадия «Новая» переименована в «Новая заявка»." in lines
     assert "В воронке «Общая» добавлена стадия «КП» (в работе)." in lines
     assert "Из воронки «Общая» удалена стадия «Финальный счёт»." in lines
     assert "Создана воронка «Тендеры»: Заявка → Выиграли." in lines
+    assert "Создана воронка «Аудит»: Начало → Готово; провальные: Отказ, Нет связи." in lines
     assert "Воронка «Сервис» переименована в «Сервисный отдел»." in lines
     # Stages of the new pipeline are not listed one by one.
     assert not any("«Выиграли» (успех)" in line for line in lines)
@@ -279,3 +286,18 @@ def test_cli_report_ai_needs_brief(project, capsys):
 def test_cli_report_unknown_snapshot(project, capsys):
     assert cli.main(["report", str(project), "--since", "nope"]) == 2
     assert "snapshot nope not found" in capsys.readouterr().err
+
+
+def test_new_departments_are_listed_parents_first(before):
+    def change(spec):
+        # Children come first in the file, as in a real portal.
+        spec.structure.departments += [
+            Department(key="terapevty", name="Терапевты", parent="vrachi"),
+            Department(key="vrachi", name="Врачи", parent="kompaniya"),
+        ]
+
+    lines = texts(before, edited(before, change))
+    assert lines == [
+        "Создан отдел «Врачи» в составе «Компания».",
+        "Создан отдел «Терапевты» в составе «Врачи».",
+    ]

@@ -95,6 +95,28 @@ def _pipeline_title(spec: PortalSpec, parts: dict) -> str:
     return f"«{name}»"
 
 
+def _stage_list(category: Category) -> str:
+    """': A → B → Won; провальные: X, Y.' — failure stages are not part of the flow."""
+    flow = [s.name for s in category.stages if s.semantic is not StageSemantic.failure]
+    failed = [s.name for s in category.stages if s.semantic is StageSemantic.failure]
+    if not flow and not failed:
+        return "."
+    text = ": " + " → ".join(flow)
+    if failed:
+        text += ("; " if flow else "") + "провальные: " + ", ".join(failed)
+    return text + "."
+
+
+def _depth(spec: PortalSpec, key: str) -> int:
+    depth, seen = 0, set()
+    dep = _department(spec, key)
+    while dep is not None and dep.parent and dep.parent not in seen:
+        seen.add(dep.parent)
+        depth += 1
+        dep = _department(spec, dep.parent)
+    return depth
+
+
 def _field_kind(f: Field) -> str:
     kind = FIELD_TYPES.get(f.type, f.type.value)
     if f.multiple:
@@ -111,6 +133,7 @@ def _field_kind(f: Field) -> str:
 class ChangeLine:
     section: str
     text: str
+    order: int = 0  # within a section: parents before children
 
 
 _PIPELINES = "Воронки и стадии"
@@ -150,9 +173,10 @@ def _describe(plan: Plan, before: PortalSpec, after: PortalSpec) -> list[ChangeL
             continue  # described together with its new parent
         text = _sentence(change, kind, parts, before, after)
         if text:
-            lines.append(ChangeLine(_section(kind, parts), text))
+            depth = _depth(after, parts["dep"]) if kind == "department" else 0
+            lines.append(ChangeLine(_section(kind, parts), text, depth))
     order = {name: n for n, name in enumerate(_SECTION_ORDER)}
-    return sorted(lines, key=lambda line: order.get(line.section, len(order)))
+    return sorted(lines, key=lambda line: (order.get(line.section, len(order)), line.order))
 
 
 def _sentence(change, kind: str, parts: dict, before: PortalSpec, after: PortalSpec) -> str:
@@ -163,9 +187,7 @@ def _sentence(change, kind: str, parts: dict, before: PortalSpec, after: PortalS
     if kind == "category":
         title = _pipeline_title(spec, parts)
         if action is Action.create:
-            category = _category(spec, parts)
-            stages = " → ".join(s.name for s in category.stages)
-            return f"Создана воронка {title}" + (f": {stages}." if stages else ".")
+            return f"Создана воронка {title}{_stage_list(_category(spec, parts))}"
         if action is Action.delete:
             return f"Удалена воронка {title}."
         if "name" in attrs:
