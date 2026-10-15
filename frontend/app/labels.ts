@@ -59,3 +59,20 @@ export const ACTION_TITLES: Record<string, string> = {
   delete: 'удалить',
   replace: 'пересоздать'
 }
+
+export const RUN_STATUS: Record<string, { label: string, color: string }> = {
+  pending: { label: 'в очереди', color: 'air-secondary' },
+  running: { label: 'применяется', color: 'air-primary' },
+  verified: { label: 'готово, проверено', color: 'air-primary-success' },
+  diverged: { label: 'применено с расхождениями', color: 'air-primary-warning' },
+  failed: { label: 'ошибка', color: 'air-primary-alert' },
+  interrupted: { label: 'прервано', color: 'air-primary-alert' },
+  unchanged: { label: 'изменений не было', color: 'air-secondary' }
+}
+
+export const RUN_KIND: Record<string, string> = {
+  apply: 'Применение',
+  rollback: 'Откат'
+}
+
+export const FINAL_STATUSES = new Set(['verified', 'diverged', 'failed', 'interrupted', 'unchanged'])

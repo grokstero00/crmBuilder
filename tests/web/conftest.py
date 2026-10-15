@@ -29,13 +29,16 @@ def app(tmp_path, fake, opened):
     url = f"sqlite:///{tmp_path / 'web.db'}"
     upgrade(url)  # the real migrations, not create_all
 
-    def factory(webhook: str) -> BitrixClient:
-        client = BitrixClient(webhook, transport=fake.transport(), sleep=lambda _: None)
+    def factory(webhook: str, *, writable: bool = False) -> BitrixClient:
+        client = BitrixClient(
+            webhook, transport=fake.transport(), sleep=lambda _: None, read_only=not writable
+        )
         opened.append(client)
         return client
 
     settings = Settings(database_url=url, secret_key="x" * 40)
-    return create_app(settings, bitrix_factory=factory)
+    # Runs execute inline so tests see their outcome right away.
+    return create_app(settings, bitrix_factory=factory, run_executor=lambda job: job())
 
 
 @pytest.fixture

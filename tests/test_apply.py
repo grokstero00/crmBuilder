@@ -348,3 +348,31 @@ def test_failure_stops_and_state_keeps_what_was_done():
     assert any(f["FIELD_NAME"] == "UF_CRM_PRINTER" for f in fake.userfields["deal"])
     assert "error" in journal[-1]
     assert applier.state.get("crm.deal_categories.servis.stages.v_rabote") is not None
+
+
+def test_progress_reports_each_change_in_order():
+    fake = seeded_portal()
+
+    def edit(spec):
+        deal_category(spec, "obshchaya").stages[0].name = "Новая заявка"
+        spec.crm.deal_categories[1].name = "Сервисная"
+
+    applier, plan, _, _ = prepare(fake, edit)
+    seen: list[tuple[str, str]] = []
+    applier.progress = lambda change, status: seen.append((change.address, status))
+    assert applier.apply(plan).ok
+    # Pipelines before stages, one report per change.
+    assert seen == [
+        ("crm.deal_categories.servis", "done"),
+        ("crm.deal_categories.obshchaya.stages.new", "done"),
+    ]
+
+
+def test_progress_reports_the_failed_change():
+    fake = seeded_portal()
+    applier, plan, _, _ = prepare(fake, lambda s: setattr(s.crm.deal_categories[1], "name", "X"))
+    applier.client = fake.client()  # read-only: the write is refused
+    seen: list[tuple[str, str]] = []
+    applier.progress = lambda change, status: seen.append((change.address, status))
+    assert not applier.apply(plan).ok
+    assert seen == [("crm.deal_categories.servis", "failed")]

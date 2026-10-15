@@ -32,6 +32,8 @@ from crmbuilder.spec.models import (
 from crmbuilder.state import State
 
 Journal = Callable[[dict[str, Any]], None]
+# Called once per change with "done" or "failed", in the order changes are carried out.
+Progress = Callable[[Change, str], None]
 
 _KEY = r"[a-z][a-z0-9_]*"
 _CATEGORY = rf"(?P<scope>crm\.deal_categories|crm\.smart_processes\.(?P<sp>{_KEY})\.categories)\.(?P<cat>{_KEY})"  # noqa: E501
@@ -97,12 +99,14 @@ class Applier:
         desired: PortalSpec,
         state: State,
         journal: Journal | None = None,
+        progress: Progress | None = None,
     ) -> None:
         self.client = client
         self.current = current
         self.desired = desired
         self.state = state
         self.journal = journal or (lambda entry: None)
+        self.progress = progress or (lambda change, status: None)
         self.result = ApplyResult()
         self._handled: set[str] = set()
         self._planned: set[str] = set()
@@ -255,15 +259,18 @@ class Applier:
         for change in sorted(plan.changes, key=self._order):
             if change.address in self._handled:
                 self.result.done.append(change)
+                self.progress(change, "done")
                 continue
             try:
                 self._run(change, plan)
             except Exception as exc:  # noqa: BLE001 - every failure must stop the run
                 self.result.failed = change
                 self.result.error = str(exc)
+                self.progress(change, "failed")
                 break
             self._handled.add(change.address)
             self.result.done.append(change)
+            self.progress(change, "done")
         return self.result
 
     def _order(self, change: Change) -> tuple:

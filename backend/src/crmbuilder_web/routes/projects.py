@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from crmbuilder import automation
+from crmbuilder.apply import Applier
 from crmbuilder.bitrix import BitrixClient, BitrixError, normalize_webhook_url
 from crmbuilder.importer import ImportResult, import_portal
 from crmbuilder.plan import diff_specs
@@ -27,6 +28,7 @@ from crmbuilder_web.deps import (
     get_project,
 )
 from crmbuilder_web.models import Project, User
+from crmbuilder_web.runs import fingerprint
 from crmbuilder_web.security import Cipher
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -43,6 +45,9 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     webhook: str | None = Field(default=None, min_length=1, max_length=500)
+    allow_write: bool | None = None
+    # Turning writes on requires typing the portal name, like confirming an apply.
+    confirm: str | None = None
 
 
 class Counts(BaseModel):
@@ -60,6 +65,7 @@ class ProjectOut(BaseModel):
     portal: str
     imported_at: datetime | None
     created_at: datetime
+    allow_write: bool
     counts: Counts | None
 
 
@@ -83,8 +89,17 @@ class ManualRule(BaseModel):
     stage: str
 
 
+class Blocker(BaseModel):
+    address: str
+    reason: str
+
+
 class PlanOut(BaseModel):
     plan: dict[str, Any]
+    # Identifies this exact plan; an apply must send it back (see runs.fingerprint).
+    fingerprint: str
+    # Changes Bitrix24 cannot make: the plan cannot be applied while any are listed.
+    blockers: list[Blocker]
     manual: list[ManualRule]
     warnings: list[str]
 
@@ -116,6 +131,7 @@ def _out(project: Project) -> ProjectOut:
         portal=project.portal,
         imported_at=project.imported_at,
         created_at=project.created_at,
+        allow_write=project.allow_write,
         counts=_counts(_spec(project)),
     )
 
@@ -135,7 +151,7 @@ def _read_portal(
     project: Project, cipher: Cipher, factory: BitrixFactory, previous: State | None
 ) -> ImportResult:
     """Read the portal through its webhook (read-only), turning failures into HTTP errors."""
-    client: BitrixClient = factory(cipher.decrypt(project.webhook_encrypted))
+    client: BitrixClient = factory(cipher.decrypt(project.webhook_encrypted), writable=False)
     try:
         return import_portal(client, lang=project.lang, previous_state=previous)
     except BitrixError as exc:
@@ -210,6 +226,13 @@ def update_project(
             )
         project.portal = portal
         project.webhook_encrypted = cipher.encrypt(webhook)
+    if body.allow_write is not None:
+        if body.allow_write and (body.confirm or "").strip() != project.portal:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"Чтобы разрешить изменения, введите имя портала: {project.portal}",
+            )
+        project.allow_write = body.allow_write
     db.commit()
     return _out(project)
 
@@ -285,8 +308,23 @@ def plan_project(
     """What would change on the portal to match the spec. Reads only; nothing is written."""
     desired = _require_spec(project)
     current = _read_portal(project, cipher, factory, _state(project))
+    return build_plan_out(current, desired)
+
+
+def build_plan_out(current: ImportResult, desired: PortalSpec) -> PlanOut:
     plan = diff_specs(current.spec, desired)
+    # unsupported() only inspects the specs and state; the client is never called.
+    applier = Applier(None, current.spec, desired, current.state)  # type: ignore[arg-type]
+    blockers = [
+        Blocker(address=u.change.address, reason=u.reason) for u in applier.unsupported(plan)
+    ]
     manual = [
         ManualRule(key=r.key, title=r.title, stage=r.stage) for r in automation.pending(desired)
     ]
-    return PlanOut(plan=plan.to_dict(), manual=manual, warnings=current.warnings)
+    return PlanOut(
+        plan=plan.to_dict(),
+        fingerprint=fingerprint(plan),
+        blockers=blockers,
+        manual=manual,
+        warnings=current.warnings,
+    )

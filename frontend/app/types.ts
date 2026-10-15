@@ -20,6 +20,7 @@ export interface Project {
   portal: string
   imported_at: string | null
   created_at: string
+  allow_write: boolean
   counts: Counts | null
 }
 
@@ -105,8 +106,42 @@ export interface Change {
   note: string
 }
 
+export interface Plan {
+  portal: string
+  summary: Record<string, number>
+  changes: Change[]
+}
+
 export interface PlanResult {
-  plan: { portal: string, summary: Record<string, number>, changes: Change[] }
+  plan: Plan
+  fingerprint: string
+  blockers: { address: string, reason: string }[]
   manual: { key: string, title: string, stage: string }[]
   warnings: string[]
+}
+
+export type RunStatus =
+  | 'pending' | 'running' | 'verified' | 'diverged' | 'failed' | 'interrupted' | 'unchanged'
+
+export interface RunSummary {
+  id: number
+  kind: 'apply' | 'rollback'
+  status: RunStatus
+  rollback_of: number | null
+  total: number
+  done: number
+  error: string | null
+  created_at: string
+  finished_at: string | null
+}
+
+export interface RunDetail extends RunSummary {
+  plan: Plan | null
+  done_addresses: string[]
+  failed: string | null
+  residual: Plan | null
+  warnings: string[]
+  journal: { time: string, method: string, error?: string }[]
+  journal_total: number
+  can_rollback: boolean
 }

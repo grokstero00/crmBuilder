@@ -16,7 +16,8 @@ from crmbuilder_web.security import Cipher, token_hash
 
 SESSION_COOKIE = "crmb_session"
 
-BitrixFactory = Callable[[str], BitrixClient]
+# factory(webhook, writable=False) -> client; read-only unless writable=True.
+BitrixFactory = Callable[..., BitrixClient]
 
 
 def get_settings(request: Request) -> Settings:
