@@ -12,3 +12,5 @@ build/
 workspace/*
 !workspace/.gitkeep
 *.db
+certs/*
+!certs/README.md

@@ -266,6 +266,16 @@ docker compose run --rm cli plan clinic/portal.yaml
 
 Сертификат добавляется к стандартным, а не заменяет их.
 
+### Ошибка сертификата при сборке (`docker compose up --build`)
+
+Если сборка падает на `pnpm install` или `pip install` с `unable to verify the first
+certificate`, `self-signed certificate in certificate chain` или
+`CERTIFICATE_VERIFY_FAILED`, причина та же: HTTPS подменяется по дороге в интернет.
+Узнайте издателя для `registry.npmjs.org` (шаг 1 выше), экспортируйте его корневой
+сертификат (шаг 2), положите файл в папку `certs/` (например, `certs/ca.pem`; можно
+скопировать `workspace/ca.pem`) и пересоберите:
+`docker compose up -d --build`. Файлы из `certs/` в git не попадают.
+
 ## Локальная разработка
 
 ```bash
