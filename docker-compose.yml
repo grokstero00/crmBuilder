@@ -1,7 +1,10 @@
 services:
   # Web interface: http://localhost:3000 after `docker compose up -d --build`.
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      additional_contexts:
+        certs: ./certs
     image: crmbuilder-web:latest
     environment:
       NUXT_API_URL: http://api:8000
@@ -15,6 +18,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      additional_contexts:
+        certs: ./certs
     image: crmbuilder-api:latest
     env_file:
       - path: .env
@@ -48,7 +53,10 @@ services:
   # Specs and state files land in ./workspace on the host. Not started by `up`.
   cli:
     profiles: ["cli"]
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        certs: ./certs
     image: crmbuilder:latest
     # Run as the host user so files written to ./workspace stay editable on the host.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
