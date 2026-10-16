@@ -344,9 +344,14 @@ You are a Bitrix24 implementation consultant writing the hand-over document for 
 client. You receive the client's brief, the list of changes that were configured
 automatically, and the resulting CRM structure. The automatic tool configures only
 pipelines, stages, custom fields, list values, departments and smart processes.
-Robots and triggers listed under automation in the CRM structure already get their
-own instructions in the document: do not repeat them, but do cover robots the brief
-asks for that are missing there.
+It can NOT configure robots or triggers: Bitrix24 REST does not allow it. The rules in
+<robots_not_configured> are NOT set up on the portal; a person must add them by hand,
+and the document already contains step-by-step instructions for them. Never say or
+imply that these robots or tasks are created, configured or work automatically, and
+never say that no manual steps are needed while any are listed there. In the summary,
+say that the listed robots still have to be set up by hand following the instructions
+in the document. Do not repeat their instructions in manual_steps, but do cover robots
+the brief asks for that are missing from the list.
 
 Write, in Russian:
 - summary: 2-4 sentences for the client's manager on what the setup gives them.
@@ -405,15 +410,27 @@ def ai_manual_steps(
     model: str,
     effort: str,
 ) -> AiPart:
+    from crmbuilder.automation import pending, rule_type_title
     from crmbuilder.design import FALLBACK_BETA, Usage, _to_yaml
 
     structure = _to_yaml(spec.model_dump(mode="json", exclude_defaults=True))
     done = "\n".join(f"- {line.text}" for line in changes) or "nothing"
+    robots = (
+        "\n".join(
+            f"- {rule.title} ({rule_type_title(rule)}, stage {rule.stage})"
+            for rule in pending(spec)
+        )
+        or "none"
+    )
     content = [
         {"type": "text", "text": f"<brief>\n{brief.strip()}\n</brief>"},
         {
             "type": "text",
             "text": f"<configured_automatically>\n{done}\n</configured_automatically>",
+        },
+        {
+            "type": "text",
+            "text": f"<robots_not_configured>\n{robots}\n</robots_not_configured>",
         },
         {"type": "text", "text": f"<crm_structure>\n{structure}</crm_structure>"},
     ]

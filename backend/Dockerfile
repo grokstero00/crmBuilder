@@ -4,7 +4,7 @@
 FROM python:3.12-slim AS build
 # Extra trusted roots from certs/ (antivirus or proxy that inspects HTTPS); usually empty.
 COPY --from=certs . /tmp/extra-ca/
-RUN cat /etc/ssl/certs/ca-certificates.crt /tmp/extra-ca/*.pem /tmp/extra-ca/*.crt \
+RUN cat /etc/ssl/certs/ca-certificates.crt /tmp/extra-ca/*.pem /tmp/extra-ca/*.crt /tmp/extra-ca/*.cer \
     > /etc/ssl/build-ca.pem 2>/dev/null; true
 ENV PIP_CERT=/etc/ssl/build-ca.pem
 WORKDIR /src
