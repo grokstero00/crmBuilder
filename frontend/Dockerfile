@@ -3,7 +3,7 @@
 FROM node:22-slim AS build
 # Extra trusted roots from certs/ (antivirus or proxy that inspects HTTPS); usually empty.
 COPY --from=certs . /tmp/extra-ca/
-RUN cat /tmp/extra-ca/*.pem /tmp/extra-ca/*.crt > /tmp/extra-ca.pem 2>/dev/null; true
+RUN cat /tmp/extra-ca/*.pem /tmp/extra-ca/*.crt /tmp/extra-ca/*.cer > /tmp/extra-ca.pem 2>/dev/null; true
 ENV NODE_EXTRA_CA_CERTS=/tmp/extra-ca.pem
 RUN corepack enable
 WORKDIR /app

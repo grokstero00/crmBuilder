@@ -206,6 +206,32 @@ def test_ai_manual_steps_and_render(before):
     assert "могут немного отличаться" in doc
 
 
+def test_ai_is_told_which_robots_are_not_configured(before):
+    # The model once wrote that a robot "was created automatically": it must get the
+    # pending rules as explicitly not configured.
+    category = before.crm.deal_categories[0]
+    stage = f"crm.deal_categories.{category.key}.stages.{category.stages[0].key}"
+    data = before.model_dump(mode="json")
+    data["automation"] = [
+        {"key": "call", "stage": stage, "action": "task", "title": "Позвонить клиенту"},
+        {"key": "sms", "stage": stage, "action": "sms", "title": "SMS готово", "done": True},
+    ]
+    spec = PortalSpec.model_validate(data)
+    claude = FakeClaude(AI_ANSWER)
+    ai_manual_steps(claude, spec, [], "ТЗ", model="claude-haiku-5-5", effort="low")
+    request = claude.requests[0]
+    sent = "\n".join(block["text"] for block in request["messages"][0]["content"])
+    robots = sent.split("<robots_not_configured>")[1].split("</robots_not_configured>")[0]
+    assert "Позвонить клиенту" in robots and "Поставить задачу" in robots
+    assert "SMS готово" not in robots  # already set up by hand
+    assert "NOT set up on the portal" in request["system"]
+
+    claude = FakeClaude(AI_ANSWER)
+    ai_manual_steps(claude, before, [], "ТЗ", model="claude-haiku-5-5", effort="low")
+    sent = "\n".join(b["text"] for b in claude.requests[0]["messages"][0]["content"])
+    assert "<robots_not_configured>\nnone\n" in sent
+
+
 def test_ai_manual_steps_errors(before):
     with pytest.raises(RuntimeError, match="not valid JSON"):
         ai_manual_steps(FakeClaude("nope"), before, [], "x", model="claude-haiku-5-5",
