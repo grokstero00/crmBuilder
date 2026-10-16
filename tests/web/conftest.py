@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -14,6 +16,30 @@ from ..fake_bitrix import FakeBitrix, seeded_portal  # noqa: E402
 WEBHOOK = "https://test.bitrix24.ru/rest/1/abc123/"
 
 
+class FakeClaude:
+    """A scripted stand-in for the Anthropic client: answers with the queued responses."""
+
+    def __init__(self) -> None:
+        self.responses: list = []
+        self.requests: list[dict] = []
+        self.closed = 0
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    def queue(self, *responses) -> None:
+        self.responses.extend(responses)
+
+    def _create(self, **kwargs):
+        # Messages are mutated after the call; keep what was sent at this point.
+        self.requests.append({**kwargs, "messages": list(kwargs["messages"])})
+        item = self.responses.pop(0)
+        if isinstance(item, Exception):  # an API failure, e.g. anthropic.RateLimitError
+            raise item
+        return item
+
+    def close(self) -> None:
+        self.closed += 1
+
+
 @pytest.fixture
 def fake() -> FakeBitrix:
     return seeded_portal()
@@ -25,7 +51,24 @@ def opened(fake: FakeBitrix) -> list[BitrixClient]:
 
 
 @pytest.fixture
-def app(tmp_path, fake, opened):
+def claude() -> FakeClaude:
+    return FakeClaude()
+
+
+@pytest.fixture
+def anthropic_factory(claude: FakeClaude):
+    return lambda: claude
+
+
+@pytest.fixture
+def ai(monkeypatch) -> None:
+    """AI features available: the server has an API key (the client itself is the fake)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    monkeypatch.delenv("CRMBUILDER_WEB_MODEL", raising=False)
+
+
+@pytest.fixture
+def app(tmp_path, fake, opened, anthropic_factory):
     url = f"sqlite:///{tmp_path / 'web.db'}"
     upgrade(url)  # the real migrations, not create_all
 
@@ -38,7 +81,12 @@ def app(tmp_path, fake, opened):
 
     settings = Settings(database_url=url, secret_key="x" * 40)
     # Runs execute inline so tests see their outcome right away.
-    return create_app(settings, bitrix_factory=factory, run_executor=lambda job: job())
+    return create_app(
+        settings,
+        bitrix_factory=factory,
+        run_executor=lambda job: job(),
+        anthropic_factory=anthropic_factory,
+    )
 
 
 @pytest.fixture

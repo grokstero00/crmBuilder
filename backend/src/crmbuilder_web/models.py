@@ -68,6 +68,9 @@ class Project(Base):
     runs: Mapped[list[Run]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Run.id.desc()"
     )
+    jobs: Mapped[list[Job]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", order_by="Job.id.desc()"
+    )
 
 
 class Run(Base):
@@ -104,3 +107,36 @@ class Run(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="runs")
+
+
+class Job(Base):
+    """One AI design, audit or report: its request, progress log and outcome."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(16))  # design | audit | report
+    # running | waiting (for answers) | done | failed | cancelled | interrupted
+    status: Mapped[str] = mapped_column(String(16), default="running")
+    params: Mapped[dict[str, Any]] = mapped_column(Json)
+    # Design: the project spec it started from; saving the result requires it unchanged.
+    base_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Design: questions waiting for answers, and the answers posted from another request.
+    questions: Mapped[list[str] | None] = mapped_column(Json, nullable=True)
+    answers: Mapped[list[str] | None] = mapped_column(Json, nullable=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    log: Mapped[list[dict[str, Any]]] = mapped_column(Json, default=list)
+    result: Mapped[dict[str, Any] | None] = mapped_column(Json, nullable=True)
+    usage: Mapped[dict[str, Any] | None] = mapped_column(Json, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    project: Mapped[Project] = relationship(back_populates="jobs")

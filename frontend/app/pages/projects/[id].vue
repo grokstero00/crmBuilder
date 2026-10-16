@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { PlanResult, Project, RunDetail, RunSummary, Spec } from '~/types'
+import type { AiConfig, PlanResult, Project, RunDetail, RunSummary, Spec } from '~/types'
 import { FINAL_STATUSES, RUN_KIND, RUN_STATUS } from '~/labels'
 
 const route = useRoute()
@@ -32,11 +32,15 @@ const confirmRunId = ref<number | null>(null)
 const confirmBusy = ref(false)
 const confirmError = ref('')
 
+// AI availability and models, shared by the designer, audit and report tabs.
+const ai = ref<AiConfig | null>(null)
+
 const writeOpen = ref(false)
 const writeTyped = ref('')
 const writeError = ref('')
 
 async function load() {
+  api<AiConfig>('/ai').then((data) => { ai.value = data }).catch(() => {})
   try {
     project.value = await api<Project>(`/projects/${id}`)
     settingsName.value = project.value.name
@@ -117,6 +121,20 @@ function removeProject() {
   return run('delete', async () => {
     await api(`/projects/${id}`, { method: 'DELETE' })
     await navigateTo('/')
+  })
+}
+
+const specDirty = computed(() => yaml.value !== savedYaml.value)
+
+// The designer wrote its result into the spec: show what that means for the portal.
+async function onDesignSaved(saved: Project) {
+  project.value = saved
+  plan.value = null
+  tab.value = 'plan'
+  await run('plan', async () => {
+    await loadSpec()
+    plan.value = await api<PlanResult>(`/projects/${id}/plan`, { method: 'POST' })
+    notice.value = 'Результат проектировщика сохранён в спецификацию. Ниже план: что изменится на портале.'
   })
 }
 
@@ -241,6 +259,9 @@ const tabs = computed(() => [
     slot: 'history' as const,
     badge: runs.value.length || undefined
   },
+  { label: 'Проектировщик', value: 'design', slot: 'design' as const },
+  { label: 'Аудит', value: 'audit', slot: 'audit' as const },
+  { label: 'Отчёт', value: 'report', slot: 'report' as const },
   { label: 'Спецификация', value: 'spec', slot: 'spec' as const },
   { label: 'Настройки', value: 'settings', slot: 'settings' as const }
 ])
@@ -356,6 +377,30 @@ onMounted(load)
               </li>
             </ul>
           </B24Card>
+        </div>
+      </template>
+
+      <template #design>
+        <div class="pt-4">
+          <DesignPanel
+            :project-id="id"
+            :project="project"
+            :ai="ai"
+            :spec-dirty="specDirty"
+            @saved="onDesignSaved"
+          />
+        </div>
+      </template>
+
+      <template #audit>
+        <div class="pt-4">
+          <AuditPanel :project-id="id" :project="project" :ai="ai" />
+        </div>
+      </template>
+
+      <template #report>
+        <div class="pt-4">
+          <ReportPanel :project-id="id" :project="project" :ai="ai" :runs="runs" />
         </div>
       </template>
 

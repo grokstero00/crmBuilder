@@ -76,3 +76,21 @@ export const RUN_KIND: Record<string, string> = {
 }
 
 export const FINAL_STATUSES = new Set(['verified', 'diverged', 'failed', 'interrupted', 'unchanged'])
+
+export const JOB_STATUS = {
+  running: { label: 'выполняется', color: 'air-primary' },
+  waiting: { label: 'ждёт ответов', color: 'air-primary-warning' },
+  done: { label: 'готово', color: 'air-primary-success' },
+  failed: { label: 'ошибка', color: 'air-primary-alert' },
+  cancelled: { label: 'отменено', color: 'air-secondary' },
+  interrupted: { label: 'прервано', color: 'air-primary-alert' }
+} as const
+
+export const ACTIVE_JOB_STATUSES = new Set(['running', 'waiting'])
+
+// Severity order as in src/crmbuilder/audit.py.
+export const SEVERITY = {
+  error: { title: 'Ошибки', count: 'Ошибок', color: 'air-primary-alert' },
+  warning: { title: 'Предупреждения', count: 'Предупреждений', color: 'air-primary-warning' },
+  info: { title: 'Советы', count: 'Советов', color: 'air-secondary' }
+} as const

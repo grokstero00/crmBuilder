@@ -133,6 +133,7 @@ export interface RunSummary {
   error: string | null
   created_at: string
   finished_at: string | null
+  has_before: boolean
 }
 
 export interface RunDetail extends RunSummary {
@@ -144,4 +145,89 @@ export interface RunDetail extends RunSummary {
   journal: { time: string, method: string, error?: string }[]
   journal_total: number
   can_rollback: boolean
+}
+
+// AI design, audit and report jobs (routes/jobs.py).
+
+export interface AiModel {
+  id: string
+  label: string
+}
+
+export interface AiConfig {
+  available: boolean
+  default_model: string
+  models: AiModel[]
+}
+
+export type JobKind = 'design' | 'audit' | 'report'
+
+export type JobStatus = 'running' | 'waiting' | 'done' | 'failed' | 'cancelled' | 'interrupted'
+
+export interface Usage {
+  model: string
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  cost_usd: number | null
+}
+
+export interface JobLogEntry {
+  type: 'edit' | 'error' | 'questions' | 'answers' | 'info'
+  text: string
+  items?: string[]
+}
+
+export type Severity = 'error' | 'warning' | 'info'
+
+export interface Finding {
+  severity: Severity
+  code: string
+  address: string
+  message: string
+  hint: string
+  source: string
+}
+
+export interface JobSummary {
+  id: number
+  kind: JobKind
+  status: JobStatus
+  created_at: string
+  finished_at: string | null
+  error: string | null
+  cost_usd: number | null
+  title: string
+}
+
+export interface JobDetail<R = unknown> extends JobSummary {
+  params: Record<string, unknown>
+  questions: string[] | null
+  log: JobLogEntry[]
+  result: R | null
+  usage: Usage | null
+  saved: boolean
+}
+
+export interface DesignResult {
+  spec: Spec
+  summary: string
+  edits: string[]
+  plan: Plan
+}
+
+export interface AuditResult {
+  findings: Finding[]
+  business_guess: string
+  markdown: string
+  counts: Record<Severity, number>
+}
+
+export interface ReportResult {
+  markdown: string
+  changes: number
+  manual_steps: number
+  since_run_id: number | null
 }

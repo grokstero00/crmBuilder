@@ -11,6 +11,7 @@ from crmbuilder.design import (
     EditError,
     SpecEditor,
     design,
+    make_client,
 )
 from crmbuilder.importer import import_portal
 from crmbuilder.plan import diff_specs
@@ -305,6 +306,20 @@ def test_cli_design_reports_missing_key(spec_file, monkeypatch, capsys):
     monkeypatch.setattr(cli, "_anthropic_client", lambda: Failing())
     assert cli.main(["design", str(spec_file), "--brief-text", "x"]) == 2
     assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+
+
+def test_anthropic_client_trusts_the_extra_ca(monkeypatch, tmp_path):
+    import anthropic
+
+    monkeypatch.delenv("BITRIX_CA_BUNDLE", raising=False)
+    assert isinstance(make_client(), anthropic.Anthropic)
+    monkeypatch.setenv("BITRIX_CA_BUNDLE", str(tmp_path / "missing.pem"))
+    with pytest.raises(ValueError, match="BITRIX_CA_BUNDLE"):
+        make_client()
+    # The CLI reports it as a usage error, as before the helper moved into the engine.
+    with pytest.raises(cli._Failure, match="BITRIX_CA_BUNDLE") as failure:
+        cli._anthropic_client()
+    assert failure.value.code == 2
 
 
 def test_haiku_cost_is_estimated():

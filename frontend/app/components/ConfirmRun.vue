@@ -37,6 +37,7 @@ const ready = computed(() =>
         />
         <B24Checkbox
           v-if="destructive"
+          variant="list"
           v-model="allowDestructive"
           label="Понимаю, что данные могут быть потеряны"
         />

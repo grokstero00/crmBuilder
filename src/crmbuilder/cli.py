@@ -305,18 +305,14 @@ def _cmd_rollback(args: argparse.Namespace) -> int:
 
 
 def _anthropic_client():
-    try:
-        import anthropic
-    except ImportError as exc:  # pragma: no cover - installed as a dependency
-        raise _Failure("the anthropic package is not installed", 2) from exc
-    from crmbuilder.bitrix.client import ssl_context
+    from crmbuilder.design import make_client
 
     try:
-        verify = ssl_context()
-    except ValueError as exc:
+        return make_client()
+    except ImportError as exc:  # pragma: no cover - installed as a dependency
+        raise _Failure("the anthropic package is not installed", 2) from exc
+    except ValueError as exc:  # the extra CA bundle cannot be loaded
         raise _Failure(str(exc), 2) from exc
-    # The same extra CA as for Bitrix: HTTPS inspection usually covers both.
-    return anthropic.Anthropic(http_client=anthropic.DefaultHttpxClient(verify=verify))
 
 
 def _ask_in_console(questions: list[str]) -> list[str]:
