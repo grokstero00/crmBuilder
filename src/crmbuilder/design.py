@@ -43,6 +43,19 @@ NOT_AVAILABLE_ANSWER = (
 )
 
 
+def make_client() -> Any:
+    """An Anthropic client that trusts the same extra CA as the Bitrix client.
+
+    HTTPS inspection (antivirus, corporate proxy) usually covers both APIs, so
+    ``BITRIX_CA_BUNDLE`` applies here too. Raises ``ValueError`` if it cannot be loaded.
+    """
+    import anthropic
+
+    from crmbuilder.bitrix.client import ssl_context
+
+    return anthropic.Anthropic(http_client=anthropic.DefaultHttpxClient(verify=ssl_context()))
+
+
 class DesignError(RuntimeError):
     pass
 

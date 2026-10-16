@@ -12,6 +12,7 @@
   "dependencies": {
     "@bitrix24/b24icons-vue": "^2.0.8",
     "@bitrix24/b24ui-nuxt": "^2.14.0",
+    "markdown-it": "^15.0.2",
     "nuxt": "^4.6.1",
     "tailwindcss": "^4.3.3"
   },

@@ -52,6 +52,8 @@ class RunSummary(BaseModel):
     error: str | None
     created_at: datetime
     finished_at: datetime | None
+    # The portal was read before writing: the run can be a base for reports and rollbacks.
+    has_before: bool
 
 
 class RunDetail(RunSummary):
@@ -76,6 +78,7 @@ def _summary(run: Run) -> dict[str, Any]:
         "error": run.error,
         "created_at": run.created_at,
         "finished_at": run.finished_at,
+        "has_before": run.before_spec is not None,
     }
 
 

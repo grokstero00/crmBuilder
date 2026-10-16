@@ -16,7 +16,8 @@ import → plan → apply → rollback, with AI design, audit, templates and a c
   package, applied by `crmbuilder-web` at start). It imports the engine; it never reimplements it.
   `runs.py` carries out apply/rollback in a background thread (`app.state.run_executor`; tests
   run it inline) with progress in the `runs` table. Writes need `Project.allow_write`, the typed
-  portal name and the plan `fingerprint` the person reviewed.
+  portal name and the plan `fingerprint` the person reviewed. `jobs.py` runs design/audit/report
+  the same way (table `jobs`); a design waiting for answers polls its row until they arrive.
 - `frontend/`: Nuxt 4 SPA with `@bitrix24/b24ui-nuxt` (components are `B24*`). `/api/*` is
   proxied by `server/api/[...path].ts` to `NUXT_API_URL`. Use pnpm, not npm (npm fails on b24ui peers).
 - `tests/`: engine tests; `tests/web/`: API tests. `tests/fake_bitrix.py` is an in-memory
