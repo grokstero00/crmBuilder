@@ -15,7 +15,7 @@ from datetime import date
 from typing import Any
 
 from crmbuilder.apply import _parse
-from crmbuilder.automation import render_instructions
+from crmbuilder.automation import pending, render_instructions
 from crmbuilder.plan import Action, Plan, diff_specs
 from crmbuilder.spec.models import (
     Category,
@@ -413,7 +413,11 @@ def ai_manual_steps(
     from crmbuilder.automation import pending, rule_type_title
     from crmbuilder.design import FALLBACK_BETA, Usage, _to_yaml
 
-    structure = _to_yaml(spec.model_dump(mode="json", exclude_defaults=True))
+    # Robot rules go only in <robots_not_configured>: seen inside the structure, the model
+    # took them for automation that already runs on the portal.
+    structure = _to_yaml(
+        spec.model_dump(mode="json", exclude_defaults=True, exclude={"automation"})
+    )
     done = "\n".join(f"- {line.text}" for line in changes) or "nothing"
     robots = (
         "\n".join(
@@ -467,6 +471,16 @@ def ai_manual_steps(
 # --- the document ----------------------------------------------------------------------
 
 
+def _robots_count(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        word = "робот или триггер"
+    elif n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        word = "робота или триггера"
+    else:
+        word = "роботов или триггеров"
+    return f"{n} {word}"
+
+
 def render(
     spec: PortalSpec,
     *,
@@ -480,6 +494,14 @@ def render(
     lines += [f"Портал: {spec.portal}  ", f"Дата: {today.strftime('%d.%m.%Y')}", ""]
     if ai and ai.summary:
         lines += [ai.summary, ""]
+    # Stated by the tool, not the model: robots are never configured automatically.
+    waiting = pending(spec)
+    if waiting:
+        lines += [
+            f"> ⚠️ Нужно настроить вручную: {_robots_count(len(waiting))}. Битрикс24 не даёт "
+            "делать это через API — пошаговая инструкция в разделе «Роботы и триггеры».",
+            "",
+        ]
     if changes is not None:
         lines += ["## Что сделано", ""]
         if not changes:

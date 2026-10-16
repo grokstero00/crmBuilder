@@ -226,6 +226,15 @@ def test_ai_is_told_which_robots_are_not_configured(before):
     assert "SMS готово" not in robots  # already set up by hand
     assert "NOT set up on the portal" in request["system"]
 
+    # The rules are not part of the structure the model reads.
+    structure = sent.split("<crm_structure>")[1]
+    assert "Позвонить клиенту" not in structure and "automation" not in structure
+
+    # The document itself says what is left, whatever the model wrote.
+    doc = render(spec, changes=None)
+    assert "> ⚠️ Нужно настроить вручную: 1 робот или триггер." in doc
+    assert "Нужно настроить вручную" not in render(before, changes=None)
+
     claude = FakeClaude(AI_ANSWER)
     ai_manual_steps(claude, before, [], "ТЗ", model="claude-haiku-5-5", effort="low")
     sent = "\n".join(b["text"] for b in claude.requests[0]["messages"][0]["content"])
