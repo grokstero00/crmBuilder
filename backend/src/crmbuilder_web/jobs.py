@@ -224,6 +224,11 @@ class JobRunner:
             "summary": result.summary,
             "edits": result.edits,
             "plan": diff_specs(spec, proposed).to_dict(),
+            # The same plain-language sentences as the report's «Что сделано».
+            "described": [
+                {"section": line.section, "text": line.text}
+                for line in report.describe_changes(spec, proposed)
+            ],
         }
 
     def _audit(self, db: Session, job: Job) -> dict[str, Any]:

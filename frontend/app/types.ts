@@ -216,6 +216,8 @@ export interface DesignResult {
   summary: string
   edits: string[]
   plan: Plan
+  /** Plain-language change list, grouped by section (older jobs may lack it). */
+  described?: { section: string, text: string }[]
 }
 
 export interface AuditResult {
