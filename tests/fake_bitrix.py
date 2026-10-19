@@ -217,10 +217,17 @@ class FakeBitrix:
             code = self._prefix(f["ENTITY_ID"]) + code
         if any(s["ENTITY_ID"] == f["ENTITY_ID"] and s["STATUS_ID"] == code for s in self.statuses):
             raise ApiError("ERROR_CORE", "STATUS_ID is not unique")
+        # Stages go in-progress, then success, then failure (see "Restrictions for SORT").
+        sort = int(f.get("SORT", 10))
+        semantics = f.get("SEMANTICS") or None
+        success = [int(s["SORT"]) for s in self.statuses
+                   if s["ENTITY_ID"] == f["ENTITY_ID"] and s["SEMANTICS"] == "S"]  # fmt: skip
+        if success and semantics is None and sort >= success[0]:
+            raise ApiError("ERROR_CORE", "Нельзя создать промежуточную стадию после успешной")
         new_id = str(self._id())
         self.statuses.append(
             {"ID": new_id, "ENTITY_ID": f["ENTITY_ID"], "STATUS_ID": code, "NAME": f["NAME"],
-             "SORT": str(f.get("SORT", 10)), "COLOR": f.get("COLOR"),
+             "SORT": str(sort), "COLOR": f.get("COLOR"),
              "SEMANTICS": f.get("SEMANTICS") or None, "SYSTEM": "N"}
         )  # fmt: skip
         return {"result": int(new_id)}

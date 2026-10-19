@@ -289,6 +289,8 @@ class Applier:
             return {Action.create: (0.5,), Action.update: (1,)}.get(change.action, (9,))
         if change.action is Action.delete:
             return {"stage": (5,), "value": (3,), "field": (6,), "category": (7,)}.get(kind, (9,))
+        if kind == "stage" and change.action is Action.create:
+            return (2.5,)  # after updates, which may move the success stage out of the way
         return {"category": (1,), "stage": (2,), "field": (3,), "value": (3,)}.get(kind, (9,))
 
     def _depth(self, dep: Department | None) -> int:
@@ -367,24 +369,40 @@ class Applier:
             if stage.key not in matched:
                 take(stage, lambda a, s=stage: _semantic(a) is s.semantic)
 
+        # Bitrix keeps in-progress stages before success and failure ones after it, and
+        # refuses a change that breaks this. So drop the leftovers, move the stages that go
+        # down, then success and failure, then the rest, and only then add new stages.
+        for item in free:  # leftovers of a brand-new, empty pipeline
+            self._call("crm.status.delete", {"id": int(item["ID"]), "params": {"FORCED": "Y"}})
+        sorts = _target_sorts(desired)
+        updates = []
         for stage in desired:
-            stage_address = f"{address}.stages.{stage.key}"
             item = matched.get(stage.key)
             if item is None:
-                self._add_stage(stage_address, entity_id, stage, {_status_code(a) for a in auto})
                 continue
             fields = {}
             if item.get("NAME") != stage.name:
                 fields["NAME"] = stage.name
-            if stage.sort is not None and str(item.get("SORT")) != str(stage.sort):
-                fields["SORT"] = stage.sort
+            if str(item.get("SORT")) != str(sorts[stage.key]):
+                fields["SORT"] = sorts[stage.key]
             if stage.color is not None and item.get("COLOR") != stage.color:
                 fields["COLOR"] = stage.color
+            if stage.semantic is not StageSemantic.process:
+                phase = 1
+            else:
+                phase = 0 if sorts[stage.key] <= int(item.get("SORT") or 0) else 2
+            updates.append((phase, stage, item, fields))
+        for _, stage, item, fields in sorted(updates, key=lambda u: u[0]):
             if fields:
                 self._call("crm.status.update", {"id": int(item["ID"]), "fields": fields})
-            self.state.set(stage_address, status_id=item["STATUS_ID"], id=int(item["ID"]))
-        for item in free:  # leftovers of a brand-new, empty pipeline
-            self._call("crm.status.delete", {"id": int(item["ID"]), "params": {"FORCED": "Y"}})
+            self.state.set(
+                f"{address}.stages.{stage.key}", status_id=item["STATUS_ID"], id=int(item["ID"])
+            )
+        taken = {_status_code(a) for a in auto}
+        for stage in desired:
+            if stage.key not in matched:
+                stage_address = f"{address}.stages.{stage.key}"
+                self._add_stage(stage_address, entity_id, stage, taken, sort=sorts[stage.key])
 
     def _update_category(self, change: Change, parts: dict) -> None:
         desired = self._category(self.desired, parts)
@@ -476,7 +494,12 @@ class Applier:
         self._add_stage(change.address, entity_id, self._stage(self.desired, parts))
 
     def _add_stage(
-        self, address: str, entity_id: str, stage: Stage, taken: set[str] | None = None
+        self,
+        address: str,
+        entity_id: str,
+        stage: Stage,
+        taken: set[str] | None = None,
+        sort: int | None = None,
     ) -> None:
         category_address = address.rsplit(".stages.", 1)[0]
         taken = set(taken or ()) | {
@@ -494,8 +517,9 @@ class Applier:
             "NAME": stage.name,
             "SEMANTICS": _SEMANTICS_CODE[stage.semantic],
         }
-        if stage.sort is not None:
-            fields["SORT"] = stage.sort
+        sort = stage.sort if sort is None else sort
+        if sort is not None:
+            fields["SORT"] = sort
         if stage.color is not None:
             fields["COLOR"] = stage.color
         new_id = int(self._call("crm.status.add", {"fields": fields}))
@@ -692,6 +716,15 @@ class Applier:
     def _delete_department(self, change: Change, parts: dict) -> None:
         self._call("department.delete", {"ID": self._remote_id(change.address)})
         self.state.drop(change.address)
+
+
+def _target_sorts(stages: list[Stage]) -> dict[str, int]:
+    """Sort values for a new pipeline's stages: the spec's, gaps filled in list order."""
+    sorts, last = {}, 0
+    for stage in stages:
+        last = stage.sort if stage.sort is not None else last + 10
+        sorts[stage.key] = last
+    return sorts
 
 
 def _stage_entity(entity_type_id: int, cat_id: int) -> str:
