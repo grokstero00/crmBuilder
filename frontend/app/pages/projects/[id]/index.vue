@@ -285,6 +285,11 @@ onMounted(load)
       </div>
       <div class="flex flex-wrap gap-2">
         <B24Button
+          color="air-primary"
+          label="✨ Настроить по описанию"
+          :to="`/projects/${id}/wizard`"
+        />
+        <B24Button
           :color="project.imported_at ? 'air-secondary' : 'air-primary'"
           :loading="busy === 'import'"
           :disabled="!!busy"

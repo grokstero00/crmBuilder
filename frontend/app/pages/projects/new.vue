@@ -14,7 +14,8 @@ async function submit() {
       method: 'POST',
       body: { name: name.value, webhook: webhook.value }
     })
-    await navigateTo(`/projects/${project.id}`)
+    // New projects start in the guided flow; the specialist tabs are one click away.
+    await navigateTo(`/projects/${project.id}/wizard`)
   } catch (e) {
     error.value = errorText(e)
   } finally {

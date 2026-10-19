@@ -188,6 +188,8 @@ def test_design_then_save(ai, user, project, claude, fake):
     assert result["summary"] == "Добавил воронку «Тендеры»."
     assert result["edits"] == ["create crm.deal_categories.tender"]
     assert [c["address"] for c in result["plan"]["changes"]][0] == "crm.deal_categories.tender"
+    assert result["described"][0]["section"] == "Воронки и стадии"
+    assert result["described"][0]["text"].startswith("Создана воронка «Тендеры»: Новый тендер")
     assert result["spec"]["portal"] == PORTAL
     assert [e["type"] for e in job["log"]] == ["info", "edit"]
     assert job["log"][1]["text"] == "create crm.deal_categories.tender"
