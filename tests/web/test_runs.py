@@ -216,3 +216,44 @@ def test_runs_belong_to_the_project_owner(app, user, project):
     assert other.get(f"/api/projects/{pid}/runs/{run['id']}").status_code == 404
     body = {"confirm": PORTAL, "fingerprint": "x"}
     assert other.post(f"/api/projects/{pid}/apply", json=body).status_code == 404
+
+
+def test_rollback_removes_a_half_created_smart_process(user, project, fake):
+    from crmbuilder.spec import Category, SmartProcess, Stage
+
+    pid = _imported(user, project)
+
+    def add_sp(spec):
+        _rename_stage(spec)
+        stages = [Stage(key=f"s{n}", name=f"Этап {n}", sort=(n + 1) * 10) for n in range(4)]
+        stages.append(Stage(key="done", name="Готово", semantic=StageSemantic.success, sort=50))
+        spec.crm.smart_processes.append(
+            SmartProcess(key="garantiya", title="Гарантия", stages_enabled=True,
+                         categories=[Category(key="osn", name="Основная", default=True,
+                                              stages=stages)])
+        )  # fmt: skip
+
+    _edit(user, pid, add_sp)
+    _allow_write(user, pid)
+    original = fake.dispatch
+
+    def failing(method, params):
+        from ..fake_bitrix import ApiError
+
+        if method == "crm.status.add":
+            raise ApiError("ERROR_CORE", "portal is busy")
+        return original(method, params)
+
+    fake.dispatch = failing
+    run = _apply(user, pid, _plan(user, pid)).json()
+    fake.dispatch = original
+    assert run["status"] == "failed" and run["failed"] == "crm.smart_processes.garantiya"
+    assert any(t["title"] == "Гарантия" for t in fake.types)  # created before the failure
+    assert run["can_rollback"] is True
+
+    back = user.post(f"/api/projects/{pid}/runs/{run['id']}/rollback-plan").json()
+    body = {"confirm": PORTAL, "fingerprint": back["fingerprint"], "allow_destructive": True}
+    r = user.post(f"/api/projects/{pid}/runs/{run['id']}/rollback", json=body)
+    undo = user.get(f"/api/projects/{pid}/runs/{r.json()['id']}").json()
+    assert undo["status"] == "verified", undo["error"]
+    assert all(t["title"] != "Гарантия" for t in fake.types)

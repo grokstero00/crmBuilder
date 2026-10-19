@@ -98,9 +98,12 @@ def _detail(run: Run) -> RunDetail:
 
 
 def _can_roll_back(run: Run) -> bool:
-    # Something may have changed on the portal and its earlier look is known.
+    # Something may have changed on the portal and its earlier look is known. A change
+    # that failed halfway (a smart process created, its stages not) counts as well.
     return (
-        run.before_spec is not None and bool(run.done) and run.status not in ("pending", "running")
+        run.before_spec is not None
+        and bool(run.done or run.failed)
+        and run.status not in ("pending", "running")
     )
 
 

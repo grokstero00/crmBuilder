@@ -498,9 +498,9 @@ const stepIndex = computed(() => STEPS.findIndex(s => s.key === step.value))
         v-else
         color="air-primary-alert"
         title="Настройка прошла не полностью"
-        :description="(run?.error || 'Часть изменений не применилась.') + ' Подробности — во вкладке «История» режима специалиста.'"
+        :description="(run?.error || 'Часть изменений не применилась.') + (run?.can_rollback ? ' Уже внесённые изменения можно отменить кнопкой ниже.' : '') + ' Подробности — во вкладке «История» режима специалиста.'"
       />
-      <B24Card v-if="!undone && sections.length" title="Что сделано">
+      <B24Card v-if="!undone && runOk && sections.length" title="Что сделано">
         <div v-for="s in sections" :key="s.title" class="mb-3 last:mb-0">
           <p class="mb-1 font-medium">{{ s.title }}</p>
           <ul class="flex flex-col gap-1 pl-1">
@@ -513,7 +513,7 @@ const stepIndex = computed(() => STEPS.findIndex(s => s.key === step.value))
       </B24Card>
       <div class="flex flex-wrap gap-2">
         <B24Button
-          v-if="!undone"
+          v-if="!undone && runOk"
           color="air-primary"
           :loading="reportBusy"
           :label="reportBusy ? 'Готовлю отчёт…' : 'Скачать отчёт для клиента'"
@@ -526,7 +526,7 @@ const stepIndex = computed(() => STEPS.findIndex(s => s.key === step.value))
           label="Открыть портал"
         />
         <B24Button
-          v-if="run && runOk && !undone && run.can_rollback !== false"
+          v-if="run && !undone && run.can_rollback"
           color="air-secondary-alert"
           label="Отменить изменения"
           @click="askRollback"

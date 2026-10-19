@@ -117,6 +117,63 @@ def test_new_pipeline_reuses_default_stages():
     )
 
 
+def _ordered(fake: FakeBitrix, entity_id: str) -> list[tuple[str, str | None]]:
+    stages = sorted(
+        (s for s in fake.statuses if s["ENTITY_ID"] == entity_id), key=lambda s: int(s["SORT"])
+    )
+    return [(s["NAME"], s["SEMANTICS"]) for s in stages]
+
+
+@pytest.mark.parametrize("sorts", [True, False])
+def test_new_smart_process_with_more_stages_than_defaults(sorts):
+    # Bitrix gives a new smart process three in-progress stages; a fourth must be added
+    # before the success stage, which Bitrix refuses while success still sits in its way.
+    fake = seeded_portal()
+    names = ["Обращение получено", "Выезд инженера", "Ожидание запчастей", "Ремонт"]
+    stages = [Stage(key=f"s{n}", name=name, sort=(n + 1) * 10 if sorts else None)
+              for n, name in enumerate(names)]  # fmt: skip
+    stages += [
+        Stage(key="zakryt", name="Закрыт", semantic=StageSemantic.success,
+              sort=50 if sorts else None),
+        Stage(key="ne_garantiya", name="Не гарантийный случай", semantic=StageSemantic.failure,
+              sort=60 if sorts else None),
+    ]  # fmt: skip
+
+    def create(spec):
+        spec.crm.smart_processes.append(
+            SmartProcess(key="garantiya", title="Гарантийные случаи", stages_enabled=True,
+                         categories=[Category(key="osnovnaya", name="Основная", default=True,
+                                              stages=stages)])
+        )  # fmt: skip
+
+    apply_and_verify(fake, create)
+    (created,) = [t for t in fake.types if t["title"] == "Гарантийные случаи"]
+    etid = created["entityTypeId"]
+    (cat,) = fake.categories[etid]
+    assert _ordered(fake, f"DYNAMIC_{etid}_STAGE_{cat['id']}") == [
+        *[(name, None) for name in names],
+        ("Закрыт", "S"),
+        ("Не гарантийный случай", "F"),
+    ]
+
+
+def test_new_stage_before_moved_success():
+    # The success stage moves down and a new in-progress stage takes its old place.
+    fake = seeded_portal()
+
+    def edit(spec):
+        stages = deal_category(spec, "obshchaya").stages
+        won = next(s for s in stages if s.semantic is StageSemantic.success)
+        at = stages.index(won)
+        stages.insert(at, Stage(key="postavka", name="Поставка", sort=won.sort))
+        for s in stages[at + 1 :]:
+            s.sort += 100
+
+    apply_and_verify(fake, edit)
+    names = [name for name, _ in _ordered(fake, "DEAL_STAGE")]
+    assert names.index("Поставка") == names.index("Сделка успешна") - 1
+
+
 def test_fields_and_values():
     fake = seeded_portal()
 
